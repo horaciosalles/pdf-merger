@@ -1,0 +1,247 @@
+/**
+ * PDF Toolkit - Responsive Design
+ */
+
+/* Tablets */
+@media (max-width: 768px) {
+  header {
+    padding: 15px;
+  }
+
+  header h1 {
+    font-size: 22px;
+  }
+
+  main {
+    margin: 20px auto;
+    padding: 0 15px;
+  }
+
+  .tabs {
+    gap: 5px;
+  }
+
+  .tab-button {
+    padding: 10px 16px;
+    font-size: 14px;
+  }
+
+  .tab-content {
+    padding: 20px;
+  }
+
+  .file-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .file-remove {
+    width: 100%;
+    margin-top: 10px;
+  }
+
+  .buttons {
+    flex-direction: column;
+  }
+
+  .btn {
+    width: 100%;
+  }
+
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+
+  .dropzone {
+    padding: 30px;
+  }
+
+  .toast-container {
+    left: 20px;
+    right: 20px;
+    top: auto;
+    bottom: 20px;
+  }
+
+  .toast {
+    min-width: auto;
+    width: 100%;
+  }
+
+  .modal-content {
+    width: 90%;
+    max-width: 100%;
+  }
+}
+
+/* Mobile */
+@media (max-width: 480px) {
+  :root {
+    font-size: 14px;
+  }
+
+  header {
+    padding: 12px;
+  }
+
+  header h1 {
+    font-size: 18px;
+  }
+
+  main {
+    margin: 15px auto;
+    padding: 0 10px;
+  }
+
+  .tabs {
+    gap: 0;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tab-button {
+    padding: 10px 12px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .tab-content {
+    padding: 15px;
+  }
+
+  .file-item {
+    padding: 10px 12px;
+  }
+
+  .file-number {
+    width: 26px;
+    height: 26px;
+    font-size: 11px;
+  }
+
+  .file-details {
+    gap: 4px;
+  }
+
+  .file-name {
+    font-size: 14px;
+  }
+
+  .file-size {
+    font-size: 11px;
+  }
+
+  .btn {
+    padding: 10px 20px;
+    font-size: 12px;
+  }
+
+  .dropzone {
+    padding: 20px;
+  }
+
+  .dropzone-icon {
+    font-size: 36px;
+    margin-bottom: 8px;
+  }
+
+  .form-input,
+  .form-select {
+    padding: 10px;
+    font-size: 16px; /* Prevents zoom on iOS */
+  }
+
+  .modal-content {
+    width: 95%;
+  }
+
+  .modal-header {
+    padding: 15px;
+  }
+
+  .modal-body {
+    padding: 15px;
+  }
+
+  .modal-buttons {
+    flex-direction: column-reverse;
+  }
+
+  .modal-buttons .btn {
+    width: 100%;
+  }
+
+  footer {
+    padding: 20px 15px;
+    font-size: 11px;
+  }
+
+  .progress-bar {
+    height: 6px;
+  }
+
+  .metadata-display {
+    padding: 12px;
+  }
+
+  .metadata-display p {
+    margin: 6px 0;
+    font-size: 13px;
+  }
+}
+
+/* Large screens */
+@media (min-width: 1440px) {
+  main {
+    max-width: 1400px;
+  }
+
+  .grid-2 {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .tab-content {
+    padding: 40px;
+  }
+}
+
+/* Print styles */
+@media print {
+  header,
+  footer,
+  .tabs,
+  .buttons,
+  .dropzone,
+  .modal {
+    display: none !important;
+  }
+
+  main {
+    margin: 0;
+    padding: 0;
+  }
+
+  .tab-content {
+    box-shadow: none;
+  }
+}
+
+/* Dark mode support (future enhancement) */
+@media (prefers-color-scheme: dark) {
+  /* Can be enhanced with dark theme colors */
+}
+
+/* Accessibility improvements */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --primary-color: #1565c0;
+    --primary-dark: #0d47a1;
+  }
+}

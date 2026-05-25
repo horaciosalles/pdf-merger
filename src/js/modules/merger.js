@@ -3,9 +3,6 @@
  * Handles PDF merging operations
  */
 
-import PDFHelper from './pdfHelper.js';
-import FileHandler from './fileHandler.js';
-
 class PDFMerger {
   /**
    * Merge multiple PDF files
@@ -111,4 +108,4 @@ class PDFMerger {
   }
 }
 
-export default PDFMerger;
+// PDFMerger is a global class — no export needed

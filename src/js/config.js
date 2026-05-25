@@ -61,4 +61,4 @@ const CONFIG = {
   }
 };
 
-export default CONFIG;
+// CONFIG is a global variable — no export needed

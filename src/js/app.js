@@ -3,15 +3,6 @@
  * Orchestrates all modules and handles main application logic
  */
 
-import CONFIG from './config.js';
-import FileHandler from './modules/fileHandler.js';
-import PDFHelper from './modules/pdfHelper.js';
-import PDFMerger from './modules/merger.js';
-import PDFSplitter from './modules/splitter.js';
-import PDFEncryptor from './modules/encryptor.js';
-import PDFProcessor from './modules/processor.js';
-import UIManager from './modules/ui.js';
-
 class PDFToolkit {
   constructor() {
     this.ui = new UIManager();
@@ -576,4 +567,4 @@ document.addEventListener('DOMContentLoaded', () => {
   window.pdfToolkit = new PDFToolkit();
 });
 
-export default PDFToolkit;
+// PDFToolkit is initialized via DOMContentLoaded below

@@ -3,9 +3,6 @@
  * Handles PDF encryption and decryption
  */
 
-import PDFHelper from './pdfHelper.js';
-import FileHandler from './fileHandler.js';
-
 class PDFEncryptor {
   /**
    * Encrypt PDF with password
@@ -148,4 +145,4 @@ class PDFEncryptor {
   }
 }
 
-export default PDFEncryptor;
+// PDFEncryptor is a global class — no export needed

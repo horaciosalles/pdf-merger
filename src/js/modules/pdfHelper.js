@@ -102,15 +102,13 @@ class PDFHelper {
   /**
    * Rotate page(s)
    */
-  static rotatePage(pdfDoc, pageIndex, degrees) {
+  static rotatePage(pdfDoc, pageIndex, deg) {
+    const { degrees } = window.PDFLib;
     const page = pdfDoc.getPage(pageIndex);
     const rotation = page.getRotation();
-    
-    // Normalize degrees to 0, 90, 180, 270
-    const normalizedDegrees = ((degrees % 360) + 360) % 360;
-    const newRotation = (rotation.angle + normalizedDegrees) % 360;
-    
-    page.setRotation(newRotation);
+    const normalizedDeg = ((deg % 360) + 360) % 360;
+    const newAngle = (rotation.angle + normalizedDeg) % 360;
+    page.setRotation(degrees(newAngle));
   }
 
   /**
@@ -218,4 +216,4 @@ class PDFHelper {
   }
 }
 
-export default PDFHelper;
+// PDFHelper is a global class — no export needed

@@ -147,4 +147,4 @@ class FileHandler {
   }
 }
 
-export default FileHandler;
+// FileHandler is a global class — no export needed

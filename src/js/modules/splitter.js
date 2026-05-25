@@ -3,9 +3,6 @@
  * Handles PDF splitting operations
  */
 
-import PDFHelper from './pdfHelper.js';
-import FileHandler from './fileHandler.js';
-
 class PDFSplitter {
   /**
    * Split PDF by page range
@@ -120,4 +117,4 @@ class PDFSplitter {
   }
 }
 
-export default PDFSplitter;
+// PDFSplitter is a global class — no export needed

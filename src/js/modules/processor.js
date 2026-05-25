@@ -3,9 +3,6 @@
  * Handles advanced PDF operations (compression, rotation, metadata, etc.)
  */
 
-import PDFHelper from './pdfHelper.js';
-import FileHandler from './fileHandler.js';
-
 class PDFProcessor {
   /**
    * Rotate pages
@@ -164,7 +161,7 @@ class PDFProcessor {
     try {
       const bytes = await FileHandler.readAsArrayBuffer(file);
       const pdf = await PDFHelper.loadPDF(bytes);
-      const { rgb } = window.PDFLib;
+      const { rgb, degrees } = window.PDFLib;
 
       const pageCount = PDFHelper.getPageCount(pdf);
 
@@ -178,7 +175,7 @@ class PDFProcessor {
           size: fontSize,
           color: rgb(color[0] / 255, color[1] / 255, color[2] / 255),
           opacity: opacity,
-          rotate: rotation
+          rotate: degrees(rotation)
         });
       }
 
@@ -280,4 +277,4 @@ class PDFProcessor {
   }
 }
 
-export default PDFProcessor;
+// PDFProcessor is a global class — no export needed

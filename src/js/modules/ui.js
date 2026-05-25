@@ -3,8 +3,6 @@
  * Handles UI state, DOM manipulation, and user interactions
  */
 
-import CONFIG from '../config.js';
-
 class UIManager {
   constructor() {
     this.state = {
@@ -344,4 +342,4 @@ class UIManager {
   }
 }
 
-export default UIManager;
+// UIManager is a global class — no export needed

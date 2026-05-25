@@ -3,7 +3,7 @@
  * Orchestrates all modules and handles main application logic
  */
 
-import CONFIG from '../config.js';
+import CONFIG from './config.js';
 import FileHandler from './modules/fileHandler.js';
 import PDFHelper from './modules/pdfHelper.js';
 import PDFMerger from './modules/merger.js';

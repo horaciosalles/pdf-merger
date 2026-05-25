@@ -307,9 +307,9 @@ class UIManager {
   saveRecentFile(filename) {
     const recent = this.loadRecentFiles();
     recent.unshift(filename);
-    recent = recent.slice(0, 5); // Keep last 5
-    localStorage.setItem(CONFIG.STORAGE_KEYS.RECENT_FILES, JSON.stringify(recent));
-    this.state.recentFiles = recent;
+    const trimmed = recent.slice(0, 5);
+    localStorage.setItem(CONFIG.STORAGE_KEYS.RECENT_FILES, JSON.stringify(trimmed));
+    this.state.recentFiles = trimmed;
   }
 
   /**

@@ -1,0 +1,21 @@
+{
+  "name": "pdf-merger",
+  "version": "1.0.0",
+  "description": "PDF Toolkit - Browser-based PDF manipulation",
+  "scripts": {
+    "test": "jest",
+    "test:unit": "jest",
+    "test:e2e": "playwright test",
+    "test:all": "jest && playwright test",
+    "serve": "node tests/server.js"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "@playwright/test": "^1.48.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": ["**/tests/unit/**/*.test.js"],
+    "verbose": true
+  }
+}

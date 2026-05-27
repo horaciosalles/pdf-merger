@@ -8,9 +8,9 @@ class FileHandler {
    * Validate if file is PDF
    */
   static isValidPDF(file) {
-    return file.name && 
-           file.name.toLowerCase().endsWith('.pdf') &&
-           (file.type === 'application/pdf' || file.type === '');
+    return !!(file.name &&
+              file.name.toLowerCase().endsWith('.pdf') &&
+              (file.type === 'application/pdf' || file.type === ''));
   }
 
   /**

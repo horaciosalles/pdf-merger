@@ -3,283 +3,234 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="PDF Toolkit - Merge, Split, Encrypt, and Edit PDFs locally with 100% privacy">
+  <meta name="description" content="PDF Toolkit — merge, split, encrypt, unlock, and edit PDFs entirely in your browser. 100% private, no uploads.">
   <meta name="theme-color" content="#1976d2">
-  <title>PDF Toolkit - Local PDF Editor & Processor</title>
-  
-  <!-- Stylesheets -->
+  <title>PDF Toolkit — Local PDF Editor & Processor</title>
+
   <link rel="stylesheet" href="./src/css/main.css">
   <link rel="stylesheet" href="./src/css/responsive.css">
-  
-  <!-- PWA Manifest -->
   <link rel="manifest" href="./manifest.json">
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect fill='%231976d2' width='192' height='192'/><text x='96' y='120' font-size='100' font-weight='bold' text-anchor='middle' fill='white' font-family='Arial'>PDF</text></svg>">
-  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect fill='%231976d2' width='192' height='192'/><text x='96' y='120' font-size='100' font-weight='bold' text-anchor='middle' fill='white' font-family='Arial'>PDF</text></svg>">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect fill='%231976d2' width='192' height='192' rx='28'/><text x='96' y='128' font-size='96' font-weight='bold' text-anchor='middle' fill='white' font-family='Arial'>PDF</text></svg>">
 </head>
 <body>
-  <!-- Header -->
+  <a class="skip-link" href="#main">Skip to content</a>
+
   <header>
     <h1>📄 PDF Toolkit</h1>
-    <p>Merge, Split, Encrypt, and Edit PDFs locally • 100% Private • No Data Upload</p>
+    <p>Merge, split, encrypt, unlock, and edit PDFs locally • 100% Private • No data leaves your device</p>
   </header>
 
-  <!-- Main Content -->
-  <main>
-    <!-- Tabs Navigation -->
-    <div class="tabs" role="tablist">
-      <button class="tab-button active" id="tab-merge" role="tab" aria-selected="true" aria-controls="tab-content-merge">
-        Merge
-      </button>
-      <button class="tab-button" id="tab-split" role="tab" aria-selected="false" aria-controls="tab-content-split">
-        Split
-      </button>
-      <button class="tab-button" id="tab-encrypt" role="tab" aria-selected="false" aria-controls="tab-content-encrypt">
-        Encrypt
-      </button>
-      <button class="tab-button" id="tab-decrypt" role="tab" aria-selected="false" aria-controls="tab-content-decrypt">
-        Decrypt
-      </button>
-      <button class="tab-button" id="tab-tools" role="tab" aria-selected="false" aria-controls="tab-content-tools">
-        Tools
-      </button>
+  <!-- Page-wide drop overlay -->
+  <div id="drop-overlay" aria-hidden="true">
+    <div class="drop-overlay-inner">
+      <div class="dropzone-icon">📥</div>
+      <p>Drop to add PDFs or images</p>
+    </div>
+  </div>
+
+  <main id="main">
+    <!-- Shared document workspace -->
+    <section class="workspace" aria-label="Your documents">
+      <div class="dropzone" id="dropzone" role="button" tabindex="0" aria-label="Add files: drop here, click, or paste">
+        <div class="dropzone-icon" aria-hidden="true">📥</div>
+        <p class="dropzone-text"><strong>Drop PDFs or images here</strong>, click to browse, or paste</p>
+        <p class="dropzone-sub">Files stay on your device · drag the ① handle to reorder for merging</p>
+        <input type="file" id="fileInput" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" multiple hidden>
+      </div>
+
+      <div class="workspace-actions">
+        <span id="ws-summary" class="ws-summary">No documents yet</span>
+        <div class="workspace-buttons">
+          <button class="btn btn-secondary btn-sm" id="ws-undo" disabled>↶ Undo</button>
+          <button class="btn btn-primary btn-sm" id="ws-download" disabled>⬇ Download active</button>
+          <button class="btn btn-secondary btn-sm" id="ws-clear" disabled>Clear all</button>
+        </div>
+      </div>
+
+      <div class="file-list" id="docList" aria-live="polite"></div>
+    </section>
+
+    <!-- Tabs -->
+    <div class="tabs" role="tablist" aria-label="Tools">
+      <button class="tab-button active" id="tab-merge" role="tab" aria-selected="true" aria-controls="tab-content-merge" tabindex="0">Merge</button>
+      <button class="tab-button" id="tab-split" role="tab" aria-selected="false" aria-controls="tab-content-split" tabindex="-1">Split</button>
+      <button class="tab-button" id="tab-encrypt" role="tab" aria-selected="false" aria-controls="tab-content-encrypt" tabindex="-1">Encrypt</button>
+      <button class="tab-button" id="tab-decrypt" role="tab" aria-selected="false" aria-controls="tab-content-decrypt" tabindex="-1">Unlock</button>
+      <button class="tab-button" id="tab-tools" role="tab" aria-selected="false" aria-controls="tab-content-tools" tabindex="-1">Tools</button>
     </div>
 
-    <!-- MERGE TAB -->
-    <div class="tab-content" id="tab-content-merge" role="tabpanel" aria-labelledby="tab-merge">
-      <h2>Merge PDFs</h2>
-      <p>Combine multiple PDF files into one. Drag to reorder files before merging.</p>
-      
-      <div class="file-management">
-        <div class="dropzone">
-          <div class="dropzone-icon">📥</div>
-          <p class="dropzone-text"><strong>Drop PDF files here</strong> or click to select</p>
-        </div>
-        
-        <div class="file-list" id="currentFilesList"></div>
-      </div>
-
-      <div class="buttons">
-        <button class="btn btn-primary action-btn" id="merge-action" data-original-text="Merge PDFs">
-          Merge PDFs
-        </button>
-      </div>
-    </div>
-
-    <!-- SPLIT TAB -->
-    <div class="tab-content hidden" id="tab-content-split" role="tabpanel" aria-labelledby="tab-split">
-      <h2>Split PDFs</h2>
-      <p>Extract specific pages or split PDFs into multiple files.</p>
-      
-      <div class="file-management">
-        <div class="dropzone">
-          <div class="dropzone-icon">📥</div>
-          <p class="dropzone-text"><strong>Drop a PDF here</strong> or click to select</p>
-        </div>
-        
-        <div class="file-list" id="currentFilesList"></div>
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">Split Method</label>
+    <div class="tab-panels">
+      <!-- MERGE -->
+      <section class="tab-content" id="tab-content-merge" role="tabpanel" aria-labelledby="tab-merge">
+        <h2>Merge PDFs</h2>
+        <p>Combines every unlocked document above, in list order. Drag the numbered handle to reorder.</p>
         <div class="buttons">
-          <button class="btn btn-secondary" id="split-individual-action">
-            Split Into Pages
-          </button>
+          <button class="btn btn-primary action-btn" id="merge-action">Merge all documents</button>
         </div>
-      </div>
+      </section>
 
-      <div class="grid-2">
+      <!-- SPLIT -->
+      <section class="tab-content hidden" id="tab-content-split" role="tabpanel" aria-labelledby="tab-split">
+        <h2>Split PDF</h2>
+        <p>Operates on the <strong>active</strong> document (highlighted above). Multi-file output is delivered as a ZIP.</p>
         <div class="form-group">
-          <label class="form-label">Extract Page Range</label>
-          <input type="text" class="form-input" id="split-range-input" 
-                 placeholder="e.g., 1-5,7,10-15">
-          <small style="color: #999;">Enter page numbers or ranges separated by commas</small>
-          <div class="buttons" style="margin-top: 10px;">
-            <button class="btn btn-primary" id="split-range-action">
-              Extract Range
-            </button>
+          <button class="btn btn-secondary" id="split-individual-action">Split into single pages</button>
+        </div>
+        <div class="grid-2">
+          <div class="form-group">
+            <label class="form-label" for="split-range-input">Extract a page range</label>
+            <input type="text" class="form-input" id="split-range-input" placeholder="e.g., 1-5,7,10-end">
+            <small class="help">Page numbers or ranges, comma-separated. "end" is allowed.</small>
+            <div class="buttons"><button class="btn btn-primary" id="split-range-action">Extract range</button></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="split-count-input">Split by page count</label>
+            <input type="number" class="form-input" id="split-count-input" min="1" value="10">
+            <small class="help">Pages per output file.</small>
+            <div class="buttons"><button class="btn btn-primary" id="split-count-action">Split by count</button></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ENCRYPT -->
+      <section class="tab-content hidden" id="tab-content-encrypt" role="tabpanel" aria-labelledby="tab-encrypt">
+        <h2>Encrypt PDF</h2>
+        <p>Protect the active document with a password (AES-256). You will set the password and choose what recipients may do.</p>
+        <div class="buttons">
+          <button class="btn btn-primary action-btn" id="encrypt-action">Set password & encrypt</button>
+        </div>
+      </section>
+
+      <!-- DECRYPT / UNLOCK -->
+      <section class="tab-content hidden" id="tab-content-decrypt" role="tabpanel" aria-labelledby="tab-decrypt">
+        <h2>Unlock PDF</h2>
+        <p>Remove protection from the active document. Three ways, depending on what you have:</p>
+
+        <div class="tool-block">
+          <h3>Remove restrictions (no password)</h3>
+          <p>For PDFs that open freely but block printing, copying, or editing (owner-password only).</p>
+          <div class="buttons"><button class="btn btn-primary" id="remove-restrictions-action">Remove restrictions</button></div>
+        </div>
+
+        <div class="tool-block">
+          <h3>Remove a known password</h3>
+          <p>You know the password that opens the file; produce an unprotected copy.</p>
+          <div class="buttons"><button class="btn btn-primary action-btn" id="decrypt-action">Enter password & unlock</button></div>
+        </div>
+
+        <div class="tool-block">
+          <h3>Try a list of passwords</h3>
+          <p>Not sure which of your passwords it is? Paste candidates and each is tried locally.</p>
+          <div class="buttons"><button class="btn btn-secondary" id="try-passwords-action">Try passwords…</button></div>
+        </div>
+      </section>
+
+      <!-- TOOLS -->
+      <section class="tab-content hidden" id="tab-content-tools" role="tabpanel" aria-labelledby="tab-tools">
+        <h2>Edit & Tools</h2>
+        <p>All tools act on the <strong>active</strong> document and can be chained. Use <em>Undo</em> above to step back.</p>
+
+        <div class="tool-block">
+          <h3>Visual page editor</h3>
+          <p>Reorder by dragging, select pages, then rotate, delete, duplicate, or extract.</p>
+          <div class="buttons"><button class="btn btn-primary" id="tool-editor-action">Open page editor</button></div>
+        </div>
+
+        <div class="grid-2">
+          <div class="tool-block">
+            <h3>Delete pages</h3>
+            <label class="form-label" for="delete-pages-input">Pages to delete</label>
+            <input type="text" class="form-input" id="delete-pages-input" placeholder="e.g., 1-5,7,10-end">
+            <div class="buttons"><button class="btn btn-danger" id="tool-delete-action">Delete pages</button></div>
+          </div>
+
+          <div class="tool-block">
+            <h3>Rotate all pages</h3>
+            <label class="form-label" for="rotate-degrees">Angle</label>
+            <select class="form-select" id="rotate-degrees">
+              <option value="90">90° clockwise</option>
+              <option value="180">180°</option>
+              <option value="270">90° counter-clockwise</option>
+            </select>
+            <div class="buttons"><button class="btn btn-primary" id="tool-rotate-action">Rotate</button></div>
+          </div>
+
+          <div class="tool-block">
+            <h3>Watermark</h3>
+            <label class="form-label" for="watermark-text">Text</label>
+            <input type="text" class="form-input" id="watermark-text" placeholder="e.g., CONFIDENTIAL">
+            <label class="form-label" for="watermark-opacity">Opacity</label>
+            <input type="range" id="watermark-opacity" min="0.05" max="0.6" step="0.05" value="0.25">
+            <div class="buttons"><button class="btn btn-primary" id="tool-watermark-action">Add watermark</button></div>
+          </div>
+
+          <div class="tool-block">
+            <h3>Page numbers</h3>
+            <label class="form-label" for="pagenum-position">Position</label>
+            <select class="form-select" id="pagenum-position">
+              <option value="bottom-right">Bottom right</option>
+              <option value="bottom-center">Bottom center</option>
+              <option value="bottom-left">Bottom left</option>
+              <option value="top-right">Top right</option>
+              <option value="top-center">Top center</option>
+              <option value="top-left">Top left</option>
+            </select>
+            <label class="form-label" for="pagenum-format">Format</label>
+            <select class="form-select" id="pagenum-format">
+              <option value="{page} / {total}">1 / N</option>
+              <option value="{page}">1</option>
+              <option value="Page {page} of {total}">Page 1 of N</option>
+            </select>
+            <label class="checkbox-row"><input type="checkbox" id="pagenum-skipfirst"> Skip first page</label>
+            <div class="buttons"><button class="btn btn-primary" id="tool-pagenum-action">Add page numbers</button></div>
           </div>
         </div>
 
-        <div class="form-group">
-          <label class="form-label">Split by Page Count</label>
-          <input type="number" class="form-input" id="split-count-input" 
-                 placeholder="Pages per file" min="1" value="10">
-          <small style="color: #999;">How many pages in each output file</small>
-          <div class="buttons" style="margin-top: 10px;">
-            <button class="btn btn-primary" id="split-count-action">
-              Split by Count
-            </button>
+        <div class="tool-block">
+          <h3>More</h3>
+          <div class="buttons wrap">
+            <button class="btn btn-secondary" id="tool-metadata-action">View / edit metadata</button>
+            <button class="btn btn-secondary" id="tool-reverse-action">Reverse page order</button>
+            <button class="btn btn-secondary" id="tool-insert-action">Insert blank page</button>
+            <button class="btn btn-secondary" id="tool-flatten-action">Flatten form fields</button>
+            <button class="btn btn-secondary" id="tool-optimize-action">Optimize size</button>
+            <button class="btn btn-secondary" id="tool-images-action">Export pages as PNG (ZIP)</button>
           </div>
         </div>
-      </div>
-    </div>
-
-    <!-- ENCRYPT TAB -->
-    <div class="tab-content hidden" id="tab-content-encrypt" role="tabpanel" aria-labelledby="tab-encrypt">
-      <h2>Encrypt PDF</h2>
-      <p>Protect your PDF with a password. Password-protected PDFs require a password to open.</p>
-      
-      <div class="file-management">
-        <div class="dropzone">
-          <div class="dropzone-icon">📥</div>
-          <p class="dropzone-text"><strong>Drop a PDF here</strong> or click to select</p>
-        </div>
-        
-        <div class="file-list" id="currentFilesList"></div>
-      </div>
-
-      <div class="form-group">
-        <label class="form-label">Encryption Options</label>
-        <small style="color: #999; display: block; margin-bottom: 10px;">
-          Click the button below to set a password
-        </small>
-        <div class="buttons">
-          <button class="btn btn-primary action-btn" id="encrypt-action" data-original-text="Encrypt PDF">
-            Set Password & Encrypt
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- DECRYPT TAB -->
-    <div class="tab-content hidden" id="tab-content-decrypt" role="tabpanel" aria-labelledby="tab-decrypt">
-      <h2>Decrypt PDF</h2>
-      <p>Remove password protection from an encrypted PDF. You must know the correct password.</p>
-      
-      <div class="file-management">
-        <div class="dropzone">
-          <div class="dropzone-icon">📥</div>
-          <p class="dropzone-text"><strong>Drop a PDF here</strong> or click to select</p>
-        </div>
-        
-        <div class="file-list" id="currentFilesList"></div>
-      </div>
-
-      <div class="form-group">
-        <div class="buttons">
-          <button class="btn btn-primary action-btn" id="decrypt-action" data-original-text="Decrypt PDF">
-            Enter Password & Decrypt
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- TOOLS TAB -->
-    <div class="tab-content hidden" id="tab-content-tools" role="tabpanel" aria-labelledby="tab-tools">
-      <h2>PDF Tools</h2>
-      <p>Advanced editing features for your PDFs.</p>
-      
-      <div class="file-management">
-        <div class="dropzone">
-          <div class="dropzone-icon">📥</div>
-          <p class="dropzone-text"><strong>Drop a PDF here</strong> or click to select</p>
-        </div>
-        
-        <div class="file-list" id="currentFilesList"></div>
-      </div>
-
-      <!-- Delete Pages -->
-      <div style="border-top: 1px solid #e0e0e0; margin-top: 30px; padding-top: 30px;">
-        <h3>Delete Pages</h3>
-        <div class="form-group">
-          <label class="form-label">Pages to Delete</label>
-          <input type="text" class="form-input" id="delete-pages-input" 
-                 placeholder="e.g., 1-5,7,10-15">
-          <small style="color: #999;">Enter page numbers or ranges separated by commas</small>
-          <div class="buttons" style="margin-top: 10px;">
-            <button class="btn btn-danger" id="tool-delete-action">
-              Delete Pages
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Rotate Pages -->
-      <div style="border-top: 1px solid #e0e0e0; margin-top: 30px; padding-top: 30px;">
-        <h3>Rotate Pages</h3>
-        <div class="form-group">
-          <label class="form-label">Rotation Angle</label>
-          <select class="form-select" id="rotate-degrees">
-            <option value="90">90° (Clockwise)</option>
-            <option value="180">180°</option>
-            <option value="270">270° (Counter-Clockwise)</option>
-          </select>
-          <small style="color: #999;">Rotates all pages in the PDF</small>
-          <div class="buttons" style="margin-top: 10px;">
-            <button class="btn btn-primary" id="tool-rotate-action">
-              Rotate All Pages
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Watermark -->
-      <div style="border-top: 1px solid #e0e0e0; margin-top: 30px; padding-top: 30px;">
-        <h3>Add Watermark</h3>
-        <div class="form-group">
-          <label class="form-label">Watermark Text</label>
-          <input type="text" class="form-input" id="watermark-text" 
-                 placeholder="e.g., CONFIDENTIAL, DRAFT, etc.">
-          <small style="color: #999;">Adds text watermark to all pages (semi-transparent)</small>
-          <div class="buttons" style="margin-top: 10px;">
-            <button class="btn btn-primary" id="tool-watermark-action">
-              Add Watermark
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Page Numbers -->
-      <div style="border-top: 1px solid #e0e0e0; margin-top: 30px; padding-top: 30px;">
-        <h3>Add Page Numbers</h3>
-        <p>Adds page numbers to the bottom-right corner of each page.</p>
-        <div class="buttons">
-          <button class="btn btn-primary" id="tool-pagenum-action">
-            Add Page Numbers
-          </button>
-        </div>
-      </div>
-
-      <!-- Metadata -->
-      <div style="border-top: 1px solid #e0e0e0; margin-top: 30px; padding-top: 30px;">
-        <h3>View & Remove Metadata</h3>
-        <p>View or remove metadata (author, title, keywords, etc.) from your PDF.</p>
-        <div class="buttons">
-          <button class="btn btn-secondary" id="tool-metadata-action">
-            View & Manage Metadata
-          </button>
-        </div>
-      </div>
+      </section>
     </div>
   </main>
 
-  <!-- Footer -->
   <footer>
     <p>
-      🔒 <strong>100% Private</strong> - All processing happens locally in your browser. No data is sent to any server.<br>
-      Powered by <a href="https://pdf-lib.js.org/">PDF-LIB</a> and <a href="https://sortablejs.github.io/Sortable/">SortableJS</a>
+      🔒 <strong>100% Private</strong> — all processing happens locally in your browser. No data is sent to any server.<br>
+      Built with <a href="https://github.com/cantoo-scribe/pdf-lib" rel="noopener">@cantoo/pdf-lib</a>,
+      <a href="https://mozilla.github.io/pdf.js/" rel="noopener">pdf.js</a>,
+      <a href="https://sortablejs.github.io/Sortable/" rel="noopener">SortableJS</a>, and
+      <a href="https://github.com/101arrowz/fflate" rel="noopener">fflate</a>.
     </p>
   </footer>
 
-  <!-- Toast Container -->
-  <div id="toast-container" class="toast-container"></div>
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-  <!-- Libraries (must load before app) -->
+  <!-- Libraries -->
   <script src="./src/lib/pdf-lib.min.js"></script>
+  <script src="./src/lib/pdf.min.js"></script>
   <script src="./src/lib/Sortable.min.js"></script>
+  <script src="./src/lib/fflate.min.js"></script>
 
-  <!-- Main Application (loaded in dependency order, no ES modules required) -->
+  <!-- Application (dependency order; plain scripts, no bundler) -->
   <script src="./src/js/config.js"></script>
   <script src="./src/js/modules/pdfHelper.js"></script>
   <script src="./src/js/modules/fileHandler.js"></script>
+  <script src="./src/js/modules/render.js"></script>
+  <script src="./src/js/modules/workspace.js"></script>
   <script src="./src/js/modules/merger.js"></script>
   <script src="./src/js/modules/splitter.js"></script>
   <script src="./src/js/modules/encryptor.js"></script>
   <script src="./src/js/modules/processor.js"></script>
+  <script src="./src/js/modules/pageEditor.js"></script>
   <script src="./src/js/modules/ui.js"></script>
   <script src="./src/js/app.js"></script>
 </body>
 </html>
-
-

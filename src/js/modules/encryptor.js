@@ -1,148 +1,72 @@
 /**
  * PDF Encryption Module
- * Handles PDF encryption and decryption
+ * Real encryption / decryption / password-removal via @cantoo/pdf-lib.
  */
 
 class PDFEncryptor {
   /**
-   * Encrypt PDF with password
+   * Encrypt bytes with a user password (AES-256).
+   * @returns {Promise<Uint8Array>}
    */
-  static async encryptPDF(file, password, options = {}) {
-    const {
-      ownerPassword = '',
-      permissions = {
-        printing: true,
-        modifying: true,
-        copying: true,
-        annotating: true,
-        fillingForms: true,
-        contentAccessibility: true,
-        documentAssembly: true
-      }
-    } = options;
-
-    if (!password || password.trim() === '') {
+  static async encrypt(bytes, userPassword, opts = {}) {
+    if (!userPassword || userPassword.trim() === '') {
       throw new Error('Password cannot be empty');
     }
-
-    try {
-      const bytes = await FileHandler.readAsArrayBuffer(file);
-      const pdf = await PDFHelper.loadPDF(bytes);
-
-      // Encrypt the PDF
-      PDFHelper.encryptPDF(
-        pdf,
-        password,
-        ownerPassword || password,
-        permissions
-      );
-
-      const encryptedBytes = await PDFHelper.savePDF(pdf);
-      return encryptedBytes;
-    } catch (error) {
-      throw new Error(`Encryption failed: ${error.message}`);
-    }
+    const { ownerPassword = '', permissions = {} } = opts;
+    const pdf = await PDFHelper.loadPDF(bytes);
+    PDFHelper.encrypt(pdf, userPassword, ownerPassword || userPassword, permissions);
+    return PDFHelper.savePDF(pdf);
   }
 
   /**
-   * Decrypt PDF with password
-   * Note: This attempts to load with the provided password
+   * Remove protection using a known password (or empty for permissions-only).
+   * Re-saves without encryption.
+   * @returns {Promise<Uint8Array>}
    */
-  static async decryptPDF(file, password) {
-    if (!password || password.trim() === '') {
-      throw new Error('Password cannot be empty');
-    }
-
+  static async decrypt(bytes, password = '') {
+    const { PDFDocument } = PDFHelper.lib;
+    let pdf;
     try {
-      const bytes = await FileHandler.readAsArrayBuffer(file);
-      
-      // pdf-lib will automatically attempt decryption when loading
-      const pdf = await PDFHelper.loadPDF(bytes);
-
-      // If we got here, either the PDF wasn't encrypted or password was correct
-      // Check if PDF is encrypted
-      if (PDFHelper.isEncrypted(pdf)) {
-        throw new Error('PDF is encrypted but password may be incorrect');
-      }
-
-      const decryptedBytes = await PDFHelper.savePDF(pdf);
-      return decryptedBytes;
+      pdf = await PDFDocument.load(PDFHelper._copy(bytes), { password, updateMetadata: false });
     } catch (error) {
-      // Try with password parameter if available in PDFDocument
+      if (PDFHelper.isPasswordError(error) || PDFHelper.isEncryptionError(error)) {
+        throw new Error('Incorrect password');
+      }
+      throw new Error(`Could not open PDF: ${error.message}`);
+    }
+    // Drop the old security handler so the saved copy is genuinely unencrypted.
+    PDFHelper.stripEncryptionArtifacts(pdf);
+    return PDFHelper.savePDF(pdf);
+  }
+
+  /**
+   * Unlock a permissions-only PDF (owner password set, empty user password)
+   * without needing any password.
+   * @returns {Promise<Uint8Array>}
+   */
+  static async removeRestrictions(bytes) {
+    return this.decrypt(bytes, '');
+  }
+
+  /**
+   * Try a list of candidate passwords (for "I forgot which one it was").
+   * @returns {Promise<{password:string, bytes:Uint8Array}|null>}
+   */
+  static async tryPasswords(bytes, candidates, opts = {}) {
+    const { onProgress = null } = opts;
+    const list = [''].concat(candidates.filter(c => c !== ''));
+    for (let i = 0; i < list.length; i++) {
+      const pw = list[i];
       try {
-        const bytes = await FileHandler.readAsArrayBuffer(file);
-        const { PDFDocument } = window.PDFLib;
-        
-        // Some versions of pdf-lib support password parameter
-        const pdf = await PDFDocument.load(bytes, { password });
-        
-        const decryptedBytes = await PDFHelper.savePDF(pdf);
-        return decryptedBytes;
-      } catch (innerError) {
-        throw new Error(`Decryption failed: Incorrect password or corrupted file`);
-      }
+        const out = await this.decrypt(bytes, pw);
+        return { password: pw, bytes: out };
+      } catch (_) { /* keep trying */ }
+      if (onProgress) onProgress({ processed: i + 1, total: list.length, percent: Math.round(((i + 1) / list.length) * 100) });
     }
-  }
-
-  /**
-   * Check if PDF is encrypted
-   */
-  static async isPDFEncrypted(file) {
-    try {
-      const bytes = await FileHandler.readAsArrayBuffer(file);
-      const pdf = await PDFHelper.loadPDF(bytes);
-      return PDFHelper.isEncrypted(pdf);
-    } catch (error) {
-      // If it throws an error about encryption, it's encrypted
-      return error.message.includes('encrypted') || error.message.includes('password');
-    }
-  }
-
-  /**
-   * Create encrypted copy with specific permissions
-   */
-  static async createRestrictedCopy(file, password, restrictions = {}) {
-    const {
-      allowPrinting = true,
-      allowModifying = false,
-      allowCopying = false,
-      allowAnnotating = false,
-      allowFormFilling = false
-    } = restrictions;
-
-    const permissions = {
-      printing: allowPrinting,
-      modifying: allowModifying,
-      copying: allowCopying,
-      annotating: allowAnnotating,
-      fillingForms: allowFormFilling
-    };
-
-    return this.encryptPDF(file, password, { permissions });
-  }
-
-  /**
-   * Verify password (test without modifying)
-   */
-  static async verifyPassword(file, password) {
-    if (!password || password.trim() === '') {
-      return false;
-    }
-
-    try {
-      const bytes = await FileHandler.readAsArrayBuffer(file);
-      const { PDFDocument } = window.PDFLib;
-      
-      // Try to load with password
-      const pdf = await PDFDocument.load(bytes, { password });
-      
-      // If successful, password is correct
-      return true;
-    } catch (error) {
-      // Password incorrect or other error
-      return false;
-    }
+    return null;
   }
 }
 
-// PDFEncryptor is a global class — no export needed
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = PDFEncryptor;
+}

@@ -1,120 +1,58 @@
 /**
  * PDF Splitter Module
- * Handles PDF splitting operations
+ * All methods take unlocked bytes and return { bytes } chunk arrays or a single
+ * byte array. Naming is left to the caller.
  */
 
 class PDFSplitter {
-  /**
-   * Split PDF by page range
-   * Returns single PDF with specified pages
-   */
-  static async splitByRange(file, rangeString, options = {}) {
-    try {
-      const bytes = await FileHandler.readAsArrayBuffer(file);
-      const sourcePdf = await PDFHelper.loadPDF(bytes);
-      const pageCount = PDFHelper.getPageCount(sourcePdf);
-
-      const pageIndices = PDFHelper.parsePageRange(rangeString, pageCount);
-      const resultPdf = await PDFHelper.extractPages(sourcePdf, pageIndices);
-
-      const resultBytes = await PDFHelper.savePDF(resultPdf);
-      return resultBytes;
-    } catch (error) {
-      throw new Error(`Split by range failed: ${error.message}`);
-    }
+  /** Extract a page range into a single new PDF. @returns {Promise<Uint8Array>} */
+  static async extractRange(bytes, rangeString) {
+    const source = await PDFHelper.loadPDF(bytes);
+    const total = PDFHelper.getPageCount(source);
+    const indices = PDFHelper.parsePageRange(rangeString, total);
+    const out = await PDFHelper.extractPages(source, indices);
+    out.setProducer('PDF Toolkit');
+    return PDFHelper.savePDF(out);
   }
 
-  /**
-   * Split PDF into individual pages
-   * Returns array of PDFs, one per page
-   */
-  static async splitIntoPages(file, options = {}) {
-    try {
-      const bytes = await FileHandler.readAsArrayBuffer(file);
-      const sourcePdf = await PDFHelper.loadPDF(bytes);
-      const pageCount = PDFHelper.getPageCount(sourcePdf);
-
-      const pdfArray = [];
-      let processed = 0;
-
-      for (let i = 0; i < pageCount; i++) {
-        const singlePagePdf = await PDFHelper.extractPages(sourcePdf, [i]);
-        const singlePageBytes = await PDFHelper.savePDF(singlePagePdf);
-        pdfArray.push(singlePageBytes);
-
-        processed++;
-        if (options.onProgress) {
-          options.onProgress({
-            processed,
-            total: pageCount,
-            percent: Math.round((processed / pageCount) * 100)
-          });
-        }
-      }
-
-      return pdfArray;
-    } catch (error) {
-      throw new Error(`Split into pages failed: ${error.message}`);
+  /** One PDF per page. @returns {Promise<Array<{bytes:Uint8Array, page:number}>>} */
+  static async splitIntoPages(bytes, opts = {}) {
+    const { onProgress = null } = opts;
+    const source = await PDFHelper.loadPDF(bytes);
+    const total = PDFHelper.getPageCount(source);
+    const results = [];
+    for (let i = 0; i < total; i++) {
+      const out = await PDFHelper.extractPages(source, [i]);
+      results.push({ bytes: await PDFHelper.savePDF(out), page: i + 1 });
+      if (onProgress) onProgress({ processed: i + 1, total, percent: Math.round(((i + 1) / total) * 100) });
     }
+    return results;
   }
 
-  /**
-   * Split PDF by page count
-   * e.g., splitByCount(file, 10) creates PDFs with 10 pages each
-   */
-  static async splitByCount(file, pagesPerFile, options = {}) {
+  /** Fixed-size chunks. @returns {Promise<Array<{bytes:Uint8Array, from:number, to:number}>>} */
+  static async splitByCount(bytes, pagesPerFile, opts = {}) {
+    const { onProgress = null } = opts;
     if (!Number.isInteger(pagesPerFile) || pagesPerFile < 1) {
       throw new Error('Pages per file must be a positive integer');
     }
-
-    try {
-      const bytes = await FileHandler.readAsArrayBuffer(file);
-      const sourcePdf = await PDFHelper.loadPDF(bytes);
-      const pageCount = PDFHelper.getPageCount(sourcePdf);
-
-      const pdfArray = [];
-      let processed = 0;
-
-      for (let i = 0; i < pageCount; i += pagesPerFile) {
-        const endIndex = Math.min(i + pagesPerFile, pageCount);
-        const pageIndices = [];
-        
-        for (let j = i; j < endIndex; j++) {
-          pageIndices.push(j);
-        }
-
-        const chunkPdf = await PDFHelper.extractPages(sourcePdf, pageIndices);
-        const chunkBytes = await PDFHelper.savePDF(chunkPdf);
-        pdfArray.push(chunkBytes);
-
-        processed++;
-        if (options.onProgress) {
-          options.onProgress({
-            processed,
-            total: Math.ceil(pageCount / pagesPerFile),
-            percent: Math.round((processed / Math.ceil(pageCount / pagesPerFile)) * 100)
-          });
-        }
-      }
-
-      return pdfArray;
-    } catch (error) {
-      throw new Error(`Split by count failed: ${error.message}`);
+    const source = await PDFHelper.loadPDF(bytes);
+    const total = PDFHelper.getPageCount(source);
+    const chunks = Math.ceil(total / pagesPerFile);
+    const results = [];
+    let processed = 0;
+    for (let i = 0; i < total; i += pagesPerFile) {
+      const end = Math.min(i + pagesPerFile, total);
+      const indices = [];
+      for (let j = i; j < end; j++) indices.push(j);
+      const out = await PDFHelper.extractPages(source, indices);
+      results.push({ bytes: await PDFHelper.savePDF(out), from: i + 1, to: end });
+      processed++;
+      if (onProgress) onProgress({ processed, total: chunks, percent: Math.round((processed / chunks) * 100) });
     }
-  }
-
-  /**
-   * Get page count from PDF file
-   */
-  static async getPageCount(file) {
-    try {
-      const bytes = await FileHandler.readAsArrayBuffer(file);
-      const pdf = await PDFHelper.loadPDF(bytes);
-      return PDFHelper.getPageCount(pdf);
-    } catch (error) {
-      throw new Error(`Failed to get page count: ${error.message}`);
-    }
+    return results;
   }
 }
 
-// PDFSplitter is a global class — no export needed
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = PDFSplitter;
+}

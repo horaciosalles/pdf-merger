@@ -129,5 +129,31 @@ describe('PDFHelper.parsePageRange', () => {
     test('throws for range start of 0', () => {
       expect(() => parsePageRange('0-5', 10)).toThrow();
     });
+
+    test('throws for garbage token "3abc"', () => {
+      expect(() => parsePageRange('3abc', 10)).toThrow();
+    });
+
+    test('throws for empty string', () => {
+      expect(() => parsePageRange('', 10)).toThrow();
+    });
+
+    test('throws for malformed range "1-2-3"', () => {
+      expect(() => parsePageRange('1-2-3', 10)).toThrow();
+    });
+  });
+
+  describe('open-ended ranges with "end"', () => {
+    test('"3-end" on 5-page doc → [2,3,4]', () => {
+      expect(parsePageRange('3-end', 5)).toEqual([2, 3, 4]);
+    });
+
+    test('"END" is case-insensitive', () => {
+      expect(parsePageRange('4-END', 5)).toEqual([3, 4]);
+    });
+
+    test('ignores empty segments from trailing commas', () => {
+      expect(parsePageRange('1,,3', 5)).toEqual([0, 2]);
+    });
   });
 });

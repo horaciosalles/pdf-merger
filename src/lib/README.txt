@@ -1,0 +1,1 @@
+// @cantoo/pdf-lib v2.11.1 (MIT) — fork of pdf-lib with working encrypt/decrypt. pdf.js v3.11.174 (Apache-2.0). fflate v0.8.3 (MIT). SortableJS (MIT).

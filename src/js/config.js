@@ -1,39 +1,34 @@
 /**
  * PDF Toolkit Configuration
- * All configuration settings for the application
+ * Central settings. Loaded as a plain global (no ES modules) so the app
+ * works directly from file:// without a build step.
  */
 
 const CONFIG = {
   // File size limits (in bytes)
-  MAX_FILE_SIZE: 500 * 1024 * 1024, // 500 MB
-  MAX_TOTAL_SIZE: 2 * 1024 * 1024 * 1024, // 2 GB
-  
-  // Compression presets
-  COMPRESSION_PRESETS: {
-    HIGH: { quality: 0.95, imageDPI: 300 },
-    MEDIUM: { quality: 0.75, imageDPI: 150 },
-    LOW: { quality: 0.5, imageDPI: 72 }
-  },
-  
-  // Encryption settings
+  MAX_FILE_SIZE: 500 * 1024 * 1024,      // 500 MB per file
+  MAX_TOTAL_SIZE: 2 * 1024 * 1024 * 1024, // 2 GB across the workspace
+
+  // Accepted input types (PDF plus images that can be converted to PDF pages)
+  ACCEPTED_PDF_EXT: ['.pdf'],
+  ACCEPTED_IMAGE_EXT: ['.jpg', '.jpeg', '.png'],
+
+  // Encryption: @cantoo/pdf-lib writes AES-256 (PDF 2.0, revision 6).
   ENCRYPTION: {
     ALGORITHM: 'AES-256',
-    KEY_LENGTH: 256,
-    PADDING: 'PKCS7'
+    KEY_LENGTH: 256
   },
-  
-  // Permissions for encryption
-  PERMISSIONS: {
-    PRINT: true,
-    COPY: true,
-    EDIT: true,
-    FORM_FILL: true
-  },
-  
-  // UI timeouts
-  TOAST_DURATION: 3000,
-  ANIMATION_DURATION: 300,
-  
+
+  // UI timings (ms)
+  TOAST_DURATION: 4000,
+  ANIMATION_DURATION: 250,
+
+  // Undo history depth for the workspace
+  MAX_HISTORY: 15,
+
+  // Thumbnail render width (px) for the page editor / previews
+  THUMBNAIL_WIDTH: 150,
+
   // Feature flags
   FEATURES: {
     MERGE: true,
@@ -41,24 +36,20 @@ const CONFIG = {
     ENCRYPT: true,
     DECRYPT: true,
     PAGE_TOOLS: true,
-    COMPRESSION: true,
     METADATA: true,
     WATERMARK: true,
     PAGE_NUMBER: true,
-    BATCH_PROCESS: true,
-    WORKER: true
+    IMAGES_TO_PDF: true,
+    PAGE_EDITOR: true
   },
-  
-  // Worker configuration
-  WORKER_ENABLED: typeof(Worker) !== 'undefined',
-  WORKER_PATH: './src/js/workers/pdfWorker.js',
-  
+
   // Local storage keys
   STORAGE_KEYS: {
     USER_PREFERENCES: 'pdfToolkit_preferences',
-    RECENT_FILES: 'pdfToolkit_recentFiles',
-    CACHE: 'pdfToolkit_cache'
+    LAST_TAB: 'pdfToolkit_lastTab'
   }
 };
 
-// CONFIG is a global variable — no export needed
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = CONFIG;
+}

@@ -1,570 +1,598 @@
 /**
- * PDF Toolkit Main Application
- * Orchestrates all modules and handles main application logic
+ * PDF Toolkit — Main Application
+ * Wires the shared Workspace to the UI: one document panel feeds every tab, so
+ * there is no per-tab duplicate state. Handles importing (drag overlay, click,
+ * paste, folders), encryption-aware loading, and dispatches operations.
  */
 
 class PDFToolkit {
   constructor() {
     this.ui = new UIManager();
-    this.currentFiles = [];
-    this.initializationComplete = false;
-    this.initializeApp();
+    this.workspace = new Workspace();
+    this.pageEditor = new PageEditor(this.ui, this.workspace);
+    this.tabs = ['merge', 'split', 'encrypt', 'decrypt', 'tools'];
+    this.currentTab = 'merge';
+    this.init();
   }
 
-  /**
-   * Initialize application
-   */
-  async initializeApp() {
-    try {
-      // Check if libraries are loaded
-      if (!window.PDFLib || !window.Sortable) {
-        throw new Error('Required libraries not loaded. Make sure pdf-lib.min.js and Sortable.min.js are included.');
-      }
+  async init() {
+    if (!window.PDFLib) { this.ui.showToast('PDF engine failed to load', 'error'); return; }
+    if (window.pdfjsLib) PDFRender.init();
 
-      this.setupCommonHandlers();
-      this.setupMergeTab();
-      this.setupSplitTab();
-      this.setupEncryptTab();
-      this.setupDecryptTab();
-      this.setupToolsTab();
+    this.workspace.on(() => this.renderWorkspace());
 
-      // Register service worker if available
-      if ('serviceWorker' in navigator) {
-        try {
-          await navigator.serviceWorker.register('./src/sw.js');
-        } catch (e) {
-          console.log('Service Worker registration failed:', e);
-        }
-      }
+    this.setupDropzone();
+    this.setupGlobalDnD();
+    this.setupPaste();
+    this.setupTabs();
+    this.setupActions();
+    this.setupTabHandlers();
+    this.restoreTab();
+    this.renderWorkspace();
 
-      this.initializationComplete = true;
-      this.ui.showToast('PDF Toolkit ready!', 'success', 2000);
-    } catch (error) {
-      console.error('Initialization failed:', error);
-      this.ui.showToast('Initialization error: ' + error.message, 'error');
+    if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+      try { await navigator.serviceWorker.register('./sw.js'); } catch (e) { console.warn('SW registration failed', e); }
     }
   }
 
-  /**
-   * Setup common handlers (drag-drop, file input)
-   */
-  setupCommonHandlers() {
-    // Setup file drop zones
-    const dropzones = document.querySelectorAll('.dropzone');
-    dropzones.forEach(zone => {
-      this.setupDropzone(zone);
+  // ── Importing ───────────────────────────────────────────────────────────
+  setupDropzone() {
+    const zone = document.getElementById('dropzone');
+    const input = document.getElementById('fileInput');
+    if (!zone || !input) return;
+    zone.addEventListener('click', () => input.click());
+    zone.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); }
     });
+    input.addEventListener('change', (e) => { this.importFiles(e.target.files); input.value = ''; });
+  }
 
-    // Keyboard shortcuts
-    document.addEventListener('keydown', (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
-        e.preventDefault();
-        const fileList = document.querySelector('.file-list:not(.hidden)');
-        if (fileList) {
-          const checkboxes = fileList.querySelectorAll('input[type="checkbox"]');
-          checkboxes.forEach(cb => cb.checked = true);
-        }
+  setupGlobalDnD() {
+    const overlay = document.getElementById('drop-overlay');
+    let depth = 0;
+    const show = () => { if (overlay) overlay.classList.add('show'); };
+    const hide = () => { if (overlay) overlay.classList.remove('show'); };
+    const hasFiles = (e) => e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
+
+    window.addEventListener('dragenter', (e) => { if (!hasFiles(e)) return; e.preventDefault(); depth++; show(); });
+    window.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
+    window.addEventListener('dragleave', (e) => { depth = Math.max(0, depth - 1); if (depth === 0) hide(); });
+    window.addEventListener('drop', async (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth = 0; hide();
+      const items = e.dataTransfer.items;
+      if (items && items.length && items[0].webkitGetAsEntry) {
+        const files = await this.collectEntries(items);
+        this.importFiles(files);
+      } else {
+        this.importFiles(e.dataTransfer.files);
       }
     });
   }
 
-  /**
-   * Setup dropzone for file uploads
-   */
-  setupDropzone(element) {
-    element.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      element.classList.add('dragover');
+  /** Recursively read folders dropped via the DataTransferItem API. */
+  async collectEntries(items) {
+    const entries = [];
+    for (const item of items) {
+      const entry = item.webkitGetAsEntry && item.webkitGetAsEntry();
+      if (entry) entries.push(entry); else if (item.getAsFile) { const f = item.getAsFile(); if (f) entries.push(f); }
+    }
+    const files = [];
+    const walk = (entry) => new Promise((resolve) => {
+      if (entry instanceof File) { files.push(entry); return resolve(); }
+      if (entry.isFile) { entry.file(f => { files.push(f); resolve(); }, () => resolve()); }
+      else if (entry.isDirectory) {
+        const reader = entry.createReader();
+        const readBatch = () => reader.readEntries(async (batch) => {
+          if (!batch.length) return resolve();
+          for (const e of batch) await walk(e);
+          readBatch();
+        }, () => resolve());
+        readBatch();
+      } else resolve();
     });
+    for (const e of entries) await walk(e);
+    return files;
+  }
 
-    element.addEventListener('dragleave', () => {
-      element.classList.remove('dragover');
-    });
-
-    element.addEventListener('drop', (e) => {
-      e.preventDefault();
-      element.classList.remove('dragover');
-      this.handleFileSelect(e.dataTransfer.files);
-    });
-
-    element.addEventListener('click', () => {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.multiple = true;
-      input.accept = '.pdf';
-      input.onchange = (e) => this.handleFileSelect(e.target.files);
-      input.click();
+  setupPaste() {
+    window.addEventListener('paste', (e) => {
+      if (!e.clipboardData || !e.clipboardData.files || !e.clipboardData.files.length) return;
+      const tag = (document.activeElement && document.activeElement.tagName) || '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      this.importFiles(e.clipboardData.files);
     });
   }
 
-  /**
-   * Handle file selection
-   */
-  handleFileSelect(files) {
+  async importFiles(fileList) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+
     const validation = FileHandler.validateFiles(files, {
-      maxSize: CONFIG.MAX_FILE_SIZE
+      maxSize: CONFIG.MAX_FILE_SIZE,
+      maxTotalSize: CONFIG.MAX_TOTAL_SIZE,
+      existingTotal: this.workspace.totalSize,
+      existingNames: this.workspace.names,
+      acceptImages: true
     });
 
-    if (validation.invalid.length > 0) {
-      validation.invalid.forEach(item => {
-        this.ui.showToast(`${item.file}: ${item.reason}`, 'warning');
+    validation.errors.forEach(err => this.ui.showToast(err, 'error'));
+    validation.invalid.forEach(item => this.ui.showToast(`${item.file}: ${item.reason}`, 'warning'));
+
+    let added = 0;
+    for (const file of validation.valid) {
+      try {
+        await this.importOne(file);
+        added++;
+      } catch (e) {
+        this.ui.showToast(`${file.name}: ${e.message}`, 'error');
+      }
+    }
+    if (added) this.ui.showToast(`${added} document(s) added`, 'success');
+  }
+
+  async importOne(file) {
+    const kind = FileHandler.classify(file);
+    if (kind === 'image') {
+      const bytes = await FileHandler.imageToPdfBytes(file);
+      this.workspace.addDocument({ name: FileHandler.baseName(file.name) + '.pdf', bytes, pageCount: 1 });
+      return;
+    }
+
+    let bytes = await FileHandler.readAsUint8Array(file);
+    if (!(await this.looksLikePDF(bytes))) throw new Error('This file is not a valid PDF');
+
+    let info;
+    try { info = await PDFHelper.analyzeEncryption(bytes); }
+    catch (e) { throw new Error(e.message); }
+
+    if (info.encrypted && !info.needsPassword) {
+      // Permissions-only: unlock silently so the document is editable.
+      try {
+        bytes = await PDFEncryptor.removeRestrictions(bytes);
+        info = { encrypted: false, needsPassword: false };
+        this.ui.showToast(`${file.name}: restrictions removed`, 'info');
+      } catch (_) { /* fall through, keep locked */ }
+    }
+
+    let pageCount = null;
+    if (!info.needsPassword) {
+      try { pageCount = PDFHelper.getPageCount(await PDFHelper.loadPDF(bytes)); } catch (_) {}
+    }
+
+    this.workspace.addDocument({ name: file.name, bytes, pageCount, locked: info });
+  }
+
+  async looksLikePDF(bytes) {
+    return bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46 && bytes[4] === 0x2D;
+  }
+
+  // ── Workspace rendering ───────────────────────────────────────────────────
+  renderWorkspace() {
+    const list = document.getElementById('docList');
+    const summary = document.getElementById('ws-summary');
+    const undoBtn = document.getElementById('ws-undo');
+    const dlBtn = document.getElementById('ws-download');
+    const clearBtn = document.getElementById('ws-clear');
+    if (!list) return;
+
+    const docs = this.workspace.documents;
+    if (summary) summary.textContent = docs.length
+      ? `${docs.length} document(s) · ${FileHandler.formatFileSize(this.workspace.totalSize)}`
+      : 'No documents yet';
+    if (undoBtn) undoBtn.disabled = !this.workspace.canUndo();
+    if (dlBtn) dlBtn.disabled = !this.workspace.active || (this.workspace.active.locked && this.workspace.active.locked.needsPassword);
+    if (clearBtn) clearBtn.disabled = !docs.length;
+
+    if (!docs.length) {
+      list.innerHTML = '<div class="empty-state"><i>No documents yet. Drop PDFs or images anywhere on this page.</i></div>';
+      return;
+    }
+
+    list.innerHTML = docs.map((d, i) => {
+      const active = d.id === this.workspace.activeId;
+      const locked = d.locked && d.locked.needsPassword;
+      const badge = locked ? '<span class="badge badge-locked" title="Password required">🔒 Locked</span>'
+        : (d.pageCount != null ? `<span class="badge">${d.pageCount} pp</span>` : '');
+      return `
+      <div class="file-item ${active ? 'active' : ''}" data-id="${d.id}" data-idx="${i}" role="button" tabindex="0" aria-pressed="${active}">
+        <div class="file-info">
+          <span class="file-number">${i + 1}</span>
+          <div class="file-details">
+            <span class="file-name">${this.ui.escapeHtml(d.name)}</span>
+            <span class="file-meta">${FileHandler.formatFileSize(d.size)} ${badge}</span>
+          </div>
+        </div>
+        <div class="file-item-actions">
+          ${locked ? `<button class="btn-mini unlock-btn" data-id="${d.id}" title="Unlock">Unlock</button>` : ''}
+          <button class="btn-mini dl-btn" data-id="${d.id}" title="Download" ${locked ? 'disabled' : ''}>⬇</button>
+          <button class="file-remove" data-id="${d.id}" title="Remove" aria-label="Remove ${this.ui.escapeHtml(d.name)}">×</button>
+        </div>
+      </div>`;
+    }).join('');
+
+    list.querySelectorAll('.file-item').forEach(el => {
+      const id = el.dataset.id;
+      const select = (e) => {
+        if (e.target.closest('button')) return;
+        this.workspace.setActive(id);
+      };
+      el.addEventListener('click', select);
+      el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.workspace.setActive(id); } });
+    });
+    list.querySelectorAll('.file-remove').forEach(b => b.addEventListener('click', () => this.workspace.removeDocument(b.dataset.id)));
+    list.querySelectorAll('.dl-btn').forEach(b => b.addEventListener('click', () => this.downloadDoc(b.dataset.id)));
+    list.querySelectorAll('.unlock-btn').forEach(b => b.addEventListener('click', () => this.unlockDoc(b.dataset.id)));
+
+    if (window.Sortable && !list._sortable) {
+      list._sortable = window.Sortable.create(list, {
+        animation: 150, handle: '.file-number', ghostClass: 'drag-ghost',
+        onEnd: (evt) => { if (evt.oldIndex !== evt.newIndex) this.workspace.reorder(evt.oldIndex, evt.newIndex); }
       });
     }
-
-    if (validation.valid.length > 0) {
-      this.currentFiles = [...this.currentFiles, ...validation.valid];
-      this.updateCurrentFilesList();
-      this.ui.showToast(`${validation.valid.length} file(s) added`, 'success');
-    }
   }
 
-  /**
-   * Update current files list display
-   */
-  updateCurrentFilesList() {
-    const container = document.getElementById('currentFilesList');
-    if (container) {
-      this.ui.updateFileList(this.currentFiles, 'currentFilesList');
-    }
+  downloadDoc(id) {
+    const doc = this.workspace.documents.find(d => d.id === id) || this.workspace.active;
+    if (!doc) return;
+    if (doc.locked && doc.locked.needsPassword) { this.ui.showToast('Unlock the document first', 'warning'); return; }
+    FileHandler.downloadPDF(doc.bytes, doc.name);
   }
 
-  /**
-   * Setup Merge tab
-   */
-  setupMergeTab() {
-    const mergeBtn = document.getElementById('merge-action');
-    if (mergeBtn) {
-      mergeBtn.addEventListener('click', () => this.performMerge());
-    }
-  }
-
-  /**
-   * Perform merge operation
-   */
-  async performMerge() {
-    if (this.currentFiles.length < 2) {
-      this.ui.showToast('Select at least 2 PDFs to merge', 'warning');
-      return;
-    }
-
-    this.ui.setProcessing(true);
-    const progress = this.ui.showProgress('Merging PDFs...');
-
+  async unlockDoc(id) {
+    const doc = this.workspace.documents.find(d => d.id === id);
+    if (!doc) return;
+    const res = await this.ui.passwordDialog({ title: `Unlock ${doc.name}`, okText: 'Unlock' });
+    if (!res) return;
+    const progress = this.ui.showProgress('Unlocking…', { indeterminate: true });
     try {
-      const result = await PDFMerger.mergePDFs(this.currentFiles, {
-        onProgress: (p) => progress.update(p.percent)
+      const bytes = await PDFEncryptor.decrypt(doc.bytes, res.password);
+      const pageCount = PDFHelper.getPageCount(await PDFHelper.loadPDF(bytes));
+      doc.bytes = bytes; doc.size = bytes.length; doc.pageCount = pageCount;
+      doc.locked = { encrypted: false, needsPassword: false }; doc.history = [];
+      this.workspace.setActive(id);
+      this.ui.showToast('Document unlocked', 'success');
+    } catch (e) {
+      this.ui.showToast('Unlock failed: ' + e.message, 'error');
+    } finally { progress.close(); }
+  }
+
+  /** Active doc that must be editable (unlocked). */
+  requireActive() {
+    const doc = this.workspace.active;
+    if (!doc) { this.ui.showToast('Add a PDF first', 'warning'); return null; }
+    if (doc.locked && doc.locked.needsPassword) { this.ui.showToast('Unlock this PDF first', 'warning'); return null; }
+    return doc;
+  }
+
+  async run(label, fn, { indeterminate = true } = {}) {
+    const progress = this.ui.showProgress(label, { indeterminate });
+    try {
+      await fn(progress);
+    } catch (e) {
+      this.ui.showToast(`${label.replace(/…$/, '')} failed: ${e.message}`, 'error');
+    } finally {
+      progress.close();
+    }
+  }
+
+  // ── Tabs ────────────────────────────────────────────────────────────────
+  setupTabs() {
+    const btns = this.tabs.map(t => document.getElementById(`tab-${t}`));
+    btns.forEach((btn, idx) => {
+      if (!btn) return;
+      btn.addEventListener('click', () => this.switchTab(this.tabs[idx]));
+      btn.addEventListener('keydown', (e) => {
+        let next = null;
+        if (e.key === 'ArrowRight') next = (idx + 1) % this.tabs.length;
+        else if (e.key === 'ArrowLeft') next = (idx - 1 + this.tabs.length) % this.tabs.length;
+        if (next !== null) { e.preventDefault(); const nb = document.getElementById(`tab-${this.tabs[next]}`); nb.focus(); this.switchTab(this.tabs[next]); }
       });
-
-      FileHandler.downloadPDF(result, 'merged.pdf');
-      this.ui.saveRecentFile('merged.pdf');
-      this.ui.showToast('PDFs merged successfully!', 'success');
-    } catch (error) {
-      this.ui.showToast('Merge failed: ' + error.message, 'error');
-    } finally {
-      progress.close();
-      this.ui.setProcessing(false);
-    }
+    });
   }
 
-  /**
-   * Setup Split tab
-   */
-  setupSplitTab() {
-    const splitByRangeBtn = document.getElementById('split-range-action');
-    const splitIndividualBtn = document.getElementById('split-individual-action');
-    const splitByCountBtn = document.getElementById('split-count-action');
-
-    if (splitByRangeBtn) {
-      splitByRangeBtn.addEventListener('click', () => this.performSplitByRange());
-    }
-    if (splitIndividualBtn) {
-      splitIndividualBtn.addEventListener('click', () => this.performSplitIndividual());
-    }
-    if (splitByCountBtn) {
-      splitByCountBtn.addEventListener('click', () => this.performSplitByCount());
-    }
+  switchTab(tab) {
+    if (!this.tabs.includes(tab)) return;
+    this.currentTab = tab;
+    this.tabs.forEach(t => {
+      const btn = document.getElementById(`tab-${t}`);
+      const panel = document.getElementById(`tab-content-${t}`);
+      if (btn) { btn.classList.toggle('active', t === tab); btn.setAttribute('aria-selected', t === tab ? 'true' : 'false'); btn.tabIndex = t === tab ? 0 : -1; }
+      if (panel) panel.classList.toggle('hidden', t !== tab);
+    });
+    try { localStorage.setItem(CONFIG.STORAGE_KEYS.LAST_TAB, tab); } catch (_) {}
+    if (location.hash !== `#${tab}`) history.replaceState(null, '', `#${tab}`);
   }
 
-  /**
-   * Split by page range
-   */
-  async performSplitByRange() {
-    if (this.currentFiles.length === 0) {
-      this.ui.showToast('Select a PDF to split', 'warning');
-      return;
+  restoreTab() {
+    let tab = (location.hash || '').replace('#', '');
+    const params = new URLSearchParams(location.search);
+    if (params.get('tab')) tab = params.get('tab');
+    if (!this.tabs.includes(tab)) { try { tab = localStorage.getItem(CONFIG.STORAGE_KEYS.LAST_TAB); } catch (_) {} }
+    this.switchTab(this.tabs.includes(tab) ? tab : 'merge');
+  }
+
+  // ── Global actions ────────────────────────────────────────────────────────
+  setupActions() {
+    const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
+    on('ws-undo', () => { if (this.workspace.undo()) this.ui.showToast('Undone', 'info'); });
+    on('ws-download', () => this.workspace.active && this.downloadDoc(this.workspace.active.id));
+    on('ws-clear', () => this.workspace.clear());
+  }
+
+  setupTabHandlers() {
+    const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
+    // Merge
+    on('merge-action', () => this.doMerge());
+    // Split
+    on('split-range-action', () => this.doSplitRange());
+    on('split-count-action', () => this.doSplitCount());
+    on('split-individual-action', () => this.doSplitIndividual());
+    // Encrypt
+    on('encrypt-action', () => this.doEncrypt());
+    // Decrypt
+    on('decrypt-action', () => this.doDecrypt());
+    on('remove-restrictions-action', () => this.doRemoveRestrictions());
+    on('try-passwords-action', () => this.doTryPasswords());
+    // Tools
+    on('tool-editor-action', () => this.pageEditor.open());
+    on('tool-delete-action', () => this.doDeletePages());
+    on('tool-rotate-action', () => this.doRotate());
+    on('tool-watermark-action', () => this.doWatermark());
+    on('tool-pagenum-action', () => this.doPageNumbers());
+    on('tool-metadata-action', () => this.doMetadata());
+    on('tool-reverse-action', () => this.doReverse());
+    on('tool-insert-action', () => this.doInsertBlank());
+    on('tool-flatten-action', () => this.doFlatten());
+    on('tool-optimize-action', () => this.doOptimize());
+    on('tool-images-action', () => this.doExportImages());
+  }
+
+  // ── Operations ──────────────────────────────────────────────────────────
+  async doMerge() {
+    const docs = this.workspace.documents.filter(d => !(d.locked && d.locked.needsPassword));
+    if (this.workspace.documents.some(d => d.locked && d.locked.needsPassword)) {
+      this.ui.showToast('Locked documents are skipped — unlock them to include them', 'warning');
     }
+    if (docs.length < 2) { this.ui.showToast('Add at least 2 unlocked PDFs to merge', 'warning'); return; }
+    await this.run('Merging…', async (p) => {
+      const bytes = await PDFMerger.merge(docs.map(d => ({ bytes: d.bytes })), { onProgress: pr => p.update(pr.percent) });
+      const pageCount = PDFHelper.getPageCount(await PDFHelper.loadPDF(bytes));
+      this.workspace.addDocument({ name: 'merged.pdf', bytes, pageCount });
+      FileHandler.downloadPDF(bytes, 'merged.pdf');
+      this.ui.showToast('Merged — added to your documents and downloaded', 'success');
+    }, { indeterminate: false });
+  }
 
-    const rangeInput = document.getElementById('split-range-input');
-    const range = rangeInput ? rangeInput.value.trim() : '';
+  async doSplitRange() {
+    const doc = this.requireActive(); if (!doc) return;
+    const range = document.getElementById('split-range-input').value.trim();
+    if (!range) { this.ui.showToast('Enter a page range (e.g. 1-5,7)', 'warning'); return; }
+    await this.run('Extracting…', async () => {
+      const bytes = await PDFSplitter.extractRange(doc.bytes, range);
+      FileHandler.downloadPDF(bytes, `${FileHandler.baseName(doc.name)}_pages_${range.replace(/[^0-9-]+/g, '_')}.pdf`);
+      this.ui.showToast('Range extracted', 'success');
+    });
+  }
 
-    if (!range) {
-      this.ui.showToast('Enter a page range (e.g., 1-5,7,10-15)', 'warning');
-      return;
-    }
+  async doSplitCount() {
+    const doc = this.requireActive(); if (!doc) return;
+    const count = parseInt(document.getElementById('split-count-input').value, 10);
+    if (!Number.isInteger(count) || count < 1) { this.ui.showToast('Enter a valid pages-per-file count', 'warning'); return; }
+    await this.run('Splitting…', async (p) => {
+      const parts = await PDFSplitter.splitByCount(doc.bytes, count, { onProgress: pr => p.update(pr.percent) });
+      const base = FileHandler.baseName(doc.name);
+      await FileHandler.downloadZip(parts.map(x => ({ name: `${base}_${x.from}-${x.to}.pdf`, bytes: x.bytes })), `${base}_split.zip`);
+      this.ui.showToast(`Split into ${parts.length} files (ZIP)`, 'success');
+    }, { indeterminate: false });
+  }
 
-    this.ui.setProcessing(true);
-    const progress = this.ui.showProgress('Splitting PDF...');
+  async doSplitIndividual() {
+    const doc = this.requireActive(); if (!doc) return;
+    await this.run('Splitting into pages…', async (p) => {
+      const parts = await PDFSplitter.splitIntoPages(doc.bytes, { onProgress: pr => p.update(pr.percent) });
+      const base = FileHandler.baseName(doc.name);
+      await FileHandler.downloadZip(parts.map(x => ({ name: `${base}_page_${x.page}.pdf`, bytes: x.bytes })), `${base}_pages.zip`);
+      this.ui.showToast(`Split into ${parts.length} pages (ZIP)`, 'success');
+    }, { indeterminate: false });
+  }
 
-    try {
-      const result = await PDFSplitter.splitByRange(this.currentFiles[0], range, {
-        onProgress: (p) => progress.update(p.percent)
+  async doEncrypt() {
+    const doc = this.requireActive(); if (!doc) return;
+    const res = await this.ui.passwordDialog({ title: 'Set a password', confirm: true, showPermissions: true, okText: 'Encrypt' });
+    if (!res) return;
+    await this.run('Encrypting…', async () => {
+      const bytes = await PDFEncryptor.encrypt(doc.bytes, res.password, { permissions: res.permissions });
+      FileHandler.downloadPDF(bytes, `${FileHandler.baseName(doc.name)}_encrypted.pdf`);
+      this.ui.showToast('Encrypted (AES-256) and downloaded', 'success');
+    });
+  }
+
+  async doDecrypt() {
+    const doc = this.workspace.active;
+    if (!doc) { this.ui.showToast('Add a PDF first', 'warning'); return; }
+    const res = await this.ui.passwordDialog({ title: 'Remove password', okText: 'Remove' });
+    if (!res) return;
+    await this.run('Removing password…', async () => {
+      const bytes = await PDFEncryptor.decrypt(doc.bytes, res.password);
+      const pageCount = PDFHelper.getPageCount(await PDFHelper.loadPDF(bytes));
+      this.workspace.replaceActive(bytes, { pageCount, locked: { encrypted: false, needsPassword: false }, name: `${FileHandler.baseName(doc.name)}_unlocked.pdf` });
+      FileHandler.downloadPDF(bytes, this.workspace.active.name);
+      this.ui.showToast('Password removed', 'success');
+    });
+  }
+
+  async doRemoveRestrictions() {
+    const doc = this.workspace.active;
+    if (!doc) { this.ui.showToast('Add a PDF first', 'warning'); return; }
+    await this.run('Removing restrictions…', async () => {
+      let bytes;
+      try { bytes = await PDFEncryptor.removeRestrictions(doc.bytes); }
+      catch (_) { throw new Error('This PDF has an open password — use "Remove password" instead'); }
+      const pageCount = PDFHelper.getPageCount(await PDFHelper.loadPDF(bytes));
+      this.workspace.replaceActive(bytes, { pageCount, locked: { encrypted: false, needsPassword: false } });
+      FileHandler.downloadPDF(bytes, `${FileHandler.baseName(doc.name)}_unrestricted.pdf`);
+      this.ui.showToast('Restrictions removed (no password was needed)', 'success');
+    });
+  }
+
+  async doTryPasswords() {
+    const doc = this.workspace.active;
+    if (!doc) { this.ui.showToast('Add a PDF first', 'warning'); return; }
+    const text = await this.ui.textareaDialog({ title: 'Try a list of passwords', placeholder: 'One password per line', okText: 'Try all' });
+    if (text === null) return;
+    const candidates = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    await this.run('Trying passwords…', async (p) => {
+      const found = await PDFEncryptor.tryPasswords(doc.bytes, candidates, { onProgress: pr => p.update(pr.percent) });
+      if (!found) { this.ui.showToast('None of those passwords worked', 'warning'); return; }
+      const pageCount = PDFHelper.getPageCount(await PDFHelper.loadPDF(found.bytes));
+      this.workspace.replaceActive(found.bytes, { pageCount, locked: { encrypted: false, needsPassword: false } });
+      this.ui.showToast(found.password === '' ? 'Unlocked (no user password set)' : `Unlocked with "${found.password}"`, 'success');
+    }, { indeterminate: false });
+  }
+
+  async doDeletePages() {
+    const doc = this.requireActive(); if (!doc) return;
+    const pages = document.getElementById('delete-pages-input').value.trim();
+    if (!pages) { this.ui.showToast('Enter pages to delete', 'warning'); return; }
+    await this.run('Deleting pages…', async () => {
+      const total = doc.pageCount || PDFHelper.getPageCount(await PDFHelper.loadPDF(doc.bytes));
+      const indices = PDFHelper.parsePageRange(pages, total);
+      const bytes = await PDFProcessor.deletePages(doc.bytes, indices);
+      this.workspace.replaceActive(bytes, { pageCount: total - indices.length });
+      this.ui.showToast('Pages deleted', 'success');
+    });
+  }
+
+  async doRotate() {
+    const doc = this.requireActive(); if (!doc) return;
+    const deg = parseInt(document.getElementById('rotate-degrees').value, 10);
+    await this.run('Rotating…', async () => {
+      const bytes = await PDFProcessor.rotatePages(doc.bytes, [], deg);
+      this.workspace.replaceActive(bytes);
+      this.ui.showToast('Rotated', 'success');
+    });
+  }
+
+  async doWatermark() {
+    const doc = this.requireActive(); if (!doc) return;
+    const text = document.getElementById('watermark-text').value.trim();
+    if (!text) { this.ui.showToast('Enter watermark text', 'warning'); return; }
+    const opacity = parseFloat(document.getElementById('watermark-opacity').value) || 0.25;
+    await this.run('Adding watermark…', async () => {
+      const res = await PDFProcessor.addWatermark(doc.bytes, text, { opacity });
+      this.workspace.replaceActive(res.bytes);
+      if (res.warning) this.ui.showToast(res.warning, 'warning');
+      this.ui.showToast('Watermark added', 'success');
+    });
+  }
+
+  async doPageNumbers() {
+    const doc = this.requireActive(); if (!doc) return;
+    const position = document.getElementById('pagenum-position').value;
+    const format = document.getElementById('pagenum-format').value;
+    const skipFirst = document.getElementById('pagenum-skipfirst').checked;
+    await this.run('Adding page numbers…', async () => {
+      const bytes = await PDFProcessor.addPageNumbers(doc.bytes, { position, format, skipFirst });
+      this.workspace.replaceActive(bytes);
+      this.ui.showToast('Page numbers added', 'success');
+    });
+  }
+
+  async doMetadata() {
+    const doc = this.requireActive(); if (!doc) return;
+    let meta;
+    try { meta = await PDFProcessor.getMetadata(doc.bytes); }
+    catch (e) { this.ui.showToast('Could not read metadata: ' + e.message, 'error'); return; }
+
+    const modal = this.ui.createModal('metadataModal', 'Metadata', { width: '560px' });
+    const fields = ['title', 'author', 'subject', 'keywords', 'creator'];
+    const inputs = {};
+    const form = document.createElement('div');
+    form.className = 'field-wrap';
+    fields.forEach(f => {
+      const label = document.createElement('label'); label.className = 'form-label'; label.textContent = f[0].toUpperCase() + f.slice(1);
+      const input = document.createElement('input'); input.className = 'form-input'; input.value = meta[f] || '';
+      inputs[f] = input;
+      form.appendChild(label); form.appendChild(input);
+    });
+    const info = document.createElement('p'); info.className = 'text-muted'; info.textContent = `${meta.pageCount} page(s)`;
+    form.appendChild(info);
+
+    const buttons = document.createElement('div');
+    buttons.className = 'modal-buttons';
+    buttons.appendChild(this.ui._btn('Strip all metadata', 'btn-danger', async () => {
+      modal.close();
+      await this.run('Removing metadata…', async () => {
+        const bytes = await PDFProcessor.removeMetadata(doc.bytes);
+        this.workspace.replaceActive(bytes);
+        this.ui.showToast('Metadata removed', 'success');
       });
-
-      FileHandler.downloadPDF(result, `split_${this.currentFiles[0].name}`);
-      this.ui.showToast('PDF split successfully!', 'success');
-    } catch (error) {
-      this.ui.showToast('Split failed: ' + error.message, 'error');
-    } finally {
-      progress.close();
-      this.ui.setProcessing(false);
-    }
-  }
-
-  /**
-   * Split into individual pages
-   */
-  async performSplitIndividual() {
-    if (this.currentFiles.length === 0) {
-      this.ui.showToast('Select a PDF to split', 'warning');
-      return;
-    }
-
-    this.ui.setProcessing(true);
-    const progress = this.ui.showProgress('Splitting PDF into individual pages...');
-
-    try {
-      const results = await PDFSplitter.splitIntoPages(this.currentFiles[0], {
-        onProgress: (p) => progress.update(p.percent)
+    }));
+    buttons.appendChild(this.ui._btn('Save changes', 'btn-primary', async () => {
+      const metadata = {}; fields.forEach(f => metadata[f] = inputs[f].value);
+      modal.close();
+      await this.run('Saving metadata…', async () => {
+        const bytes = await PDFProcessor.setMetadata(doc.bytes, metadata);
+        this.workspace.replaceActive(bytes);
+        this.ui.showToast('Metadata updated', 'success');
       });
-
-      FileHandler.downloadMultiplePDFs(results, `page`);
-      this.ui.showToast(`PDF split into ${results.length} files!`, 'success');
-    } catch (error) {
-      this.ui.showToast('Split failed: ' + error.message, 'error');
-    } finally {
-      progress.close();
-      this.ui.setProcessing(false);
-    }
+    }));
+    modal.body.appendChild(form);
+    modal.body.appendChild(buttons);
   }
 
-  /**
-   * Split by page count
-   */
-  async performSplitByCount() {
-    if (this.currentFiles.length === 0) {
-      this.ui.showToast('Select a PDF to split', 'warning');
-      return;
-    }
-
-    const countInput = document.getElementById('split-count-input');
-    const count = countInput ? parseInt(countInput.value) : 0;
-
-    if (!Number.isInteger(count) || count < 1) {
-      this.ui.showToast('Enter a valid number of pages per file', 'warning');
-      return;
-    }
-
-    this.ui.setProcessing(true);
-    const progress = this.ui.showProgress('Splitting PDF by count...');
-
-    try {
-      const results = await PDFSplitter.splitByCount(this.currentFiles[0], count, {
-        onProgress: (p) => progress.update(p.percent)
-      });
-
-      FileHandler.downloadMultiplePDFs(results, `split`);
-      this.ui.showToast(`PDF split into ${results.length} files!`, 'success');
-    } catch (error) {
-      this.ui.showToast('Split failed: ' + error.message, 'error');
-    } finally {
-      progress.close();
-      this.ui.setProcessing(false);
-    }
+  async doReverse() {
+    const doc = this.requireActive(); if (!doc) return;
+    await this.run('Reversing…', async () => {
+      const bytes = await PDFProcessor.reversePages(doc.bytes);
+      this.workspace.replaceActive(bytes);
+      this.ui.showToast('Page order reversed', 'success');
+    });
   }
 
-  /**
-   * Setup Encrypt tab
-   */
-  setupEncryptTab() {
-    const encryptBtn = document.getElementById('encrypt-action');
-    if (encryptBtn) {
-      encryptBtn.addEventListener('click', () => this.performEncrypt());
-    }
+  async doInsertBlank() {
+    const doc = this.requireActive(); if (!doc) return;
+    await this.run('Inserting blank page…', async () => {
+      const bytes = await PDFProcessor.insertBlankPage(doc.bytes, -1);
+      this.workspace.replaceActive(bytes, { pageCount: (doc.pageCount || 0) + 1 });
+      this.ui.showToast('Blank page added at end', 'success');
+    });
   }
 
-  /**
-   * Perform encryption
-   */
-  async performEncrypt() {
-    if (this.currentFiles.length === 0) {
-      this.ui.showToast('Select a PDF to encrypt', 'warning');
-      return;
-    }
-
-    const password = await this.ui.createPasswordInput('Set PDF Password');
-    if (!password) return;
-
-    this.ui.setProcessing(true);
-    const progress = this.ui.showProgress('Encrypting PDF...');
-
-    try {
-      const result = await PDFEncryptor.encryptPDF(this.currentFiles[0], password, {
-        permissions: {
-          printing: true,
-          modifying: false,
-          copying: false
-        }
-      });
-
-      FileHandler.downloadPDF(result, `encrypted_${this.currentFiles[0].name}`);
-      this.ui.showToast('PDF encrypted successfully!', 'success');
-    } catch (error) {
-      this.ui.showToast('Encryption failed: ' + error.message, 'error');
-    } finally {
-      progress.close();
-      this.ui.setProcessing(false);
-    }
+  async doFlatten() {
+    const doc = this.requireActive(); if (!doc) return;
+    await this.run('Flattening form…', async () => {
+      const bytes = await PDFProcessor.flattenForms(doc.bytes);
+      this.workspace.replaceActive(bytes);
+      this.ui.showToast('Form fields flattened', 'success');
+    });
   }
 
-  /**
-   * Setup Decrypt tab
-   */
-  setupDecryptTab() {
-    const decryptBtn = document.getElementById('decrypt-action');
-    if (decryptBtn) {
-      decryptBtn.addEventListener('click', () => this.performDecrypt());
-    }
+  async doExportImages() {
+    const doc = this.requireActive(); if (!doc) return;
+    await this.run('Rendering pages…', async (p) => {
+      const pngs = await PDFRender.pagesToPng(doc.bytes, 150, (i, n) => p.update((i / n) * 100));
+      const base = FileHandler.baseName(doc.name);
+      await FileHandler.downloadZip(pngs.map((b, i) => ({ name: `${base}_page_${i + 1}.png`, bytes: b })), `${base}_images.zip`);
+      this.ui.showToast(`Exported ${pngs.length} page image(s)`, 'success');
+    }, { indeterminate: false });
   }
 
-  /**
-   * Perform decryption
-   */
-  async performDecrypt() {
-    if (this.currentFiles.length === 0) {
-      this.ui.showToast('Select a PDF to decrypt', 'warning');
-      return;
-    }
-
-    const password = await this.ui.createPasswordInput('Enter PDF Password');
-    if (!password) return;
-
-    this.ui.setProcessing(true);
-    const progress = this.ui.showProgress('Decrypting PDF...');
-
-    try {
-      const result = await PDFEncryptor.decryptPDF(this.currentFiles[0], password);
-
-      FileHandler.downloadPDF(result, `decrypted_${this.currentFiles[0].name}`);
-      this.ui.showToast('PDF decrypted successfully!', 'success');
-    } catch (error) {
-      this.ui.showToast('Decryption failed: ' + error.message, 'error');
-    } finally {
-      progress.close();
-      this.ui.setProcessing(false);
-    }
-  }
-
-  /**
-   * Setup Tools tab
-   */
-  setupToolsTab() {
-    const deleteBtn = document.getElementById('tool-delete-action');
-    const rotateBtn = document.getElementById('tool-rotate-action');
-    const watermarkBtn = document.getElementById('tool-watermark-action');
-    const pageNumBtn = document.getElementById('tool-pagenum-action');
-    const metadataBtn = document.getElementById('tool-metadata-action');
-
-    if (deleteBtn) deleteBtn.addEventListener('click', () => this.performDeletePages());
-    if (rotateBtn) rotateBtn.addEventListener('click', () => this.performRotatePages());
-    if (watermarkBtn) watermarkBtn.addEventListener('click', () => this.performWatermark());
-    if (pageNumBtn) pageNumBtn.addEventListener('click', () => this.performAddPageNumbers());
-    if (metadataBtn) metadataBtn.addEventListener('click', () => this.performMetadata());
-  }
-
-  /**
-   * Delete pages
-   */
-  async performDeletePages() {
-    if (this.currentFiles.length === 0) {
-      this.ui.showToast('Select a PDF', 'warning');
-      return;
-    }
-
-    const pagesInput = document.getElementById('delete-pages-input');
-    const pages = pagesInput ? pagesInput.value.trim() : '';
-
-    if (!pages) {
-      this.ui.showToast('Enter page numbers to delete', 'warning');
-      return;
-    }
-
-    this.ui.setProcessing(true);
-    const progress = this.ui.showProgress('Deleting pages...');
-
-    try {
-      const fileBytes = await FileHandler.readAsArrayBuffer(this.currentFiles[0]);
-      const pdf = await PDFHelper.loadPDF(fileBytes);
-      const pageCount = PDFHelper.getPageCount(pdf);
-      const pageIndices = PDFHelper.parsePageRange(pages, pageCount);
-
-      const result = await PDFProcessor.deletePages(this.currentFiles[0], pageIndices);
-      FileHandler.downloadPDF(result, `edited_${this.currentFiles[0].name}`);
-      this.ui.showToast('Pages deleted successfully!', 'success');
-    } catch (error) {
-      this.ui.showToast('Delete failed: ' + error.message, 'error');
-    } finally {
-      progress.close();
-      this.ui.setProcessing(false);
-    }
-  }
-
-  /**
-   * Rotate pages
-   */
-  async performRotatePages() {
-    if (this.currentFiles.length === 0) {
-      this.ui.showToast('Select a PDF', 'warning');
-      return;
-    }
-
-    const degreesSelect = document.getElementById('rotate-degrees');
-    const degrees = degreesSelect ? parseInt(degreesSelect.value) : 90;
-
-    this.ui.setProcessing(true);
-    const progress = this.ui.showProgress('Rotating pages...');
-
-    try {
-      const fileBytes = await FileHandler.readAsArrayBuffer(this.currentFiles[0]);
-      const pdf = await PDFHelper.loadPDF(fileBytes);
-      const pageCount = PDFHelper.getPageCount(pdf);
-      const allPages = Array.from({ length: pageCount }, (_, i) => i);
-
-      const result = await PDFProcessor.rotatePages(this.currentFiles[0], allPages, degrees);
-      FileHandler.downloadPDF(result, `rotated_${this.currentFiles[0].name}`);
-      this.ui.showToast('Pages rotated successfully!', 'success');
-    } catch (error) {
-      this.ui.showToast('Rotation failed: ' + error.message, 'error');
-    } finally {
-      progress.close();
-      this.ui.setProcessing(false);
-    }
-  }
-
-  /**
-   * Add watermark
-   */
-  async performWatermark() {
-    if (this.currentFiles.length === 0) {
-      this.ui.showToast('Select a PDF', 'warning');
-      return;
-    }
-
-    const textInput = document.getElementById('watermark-text');
-    const text = textInput ? textInput.value.trim() : '';
-
-    if (!text) {
-      this.ui.showToast('Enter watermark text', 'warning');
-      return;
-    }
-
-    this.ui.setProcessing(true);
-    const progress = this.ui.showProgress('Adding watermark...');
-
-    try {
-      const result = await PDFProcessor.addWatermark(this.currentFiles[0], text, {
-        opacity: 0.3,
-        rotation: -45,
-        fontSize: 60
-      });
-
-      FileHandler.downloadPDF(result, `watermarked_${this.currentFiles[0].name}`);
-      this.ui.showToast('Watermark added successfully!', 'success');
-    } catch (error) {
-      this.ui.showToast('Watermark failed: ' + error.message, 'error');
-    } finally {
-      progress.close();
-      this.ui.setProcessing(false);
-    }
-  }
-
-  /**
-   * Add page numbers
-   */
-  async performAddPageNumbers() {
-    if (this.currentFiles.length === 0) {
-      this.ui.showToast('Select a PDF', 'warning');
-      return;
-    }
-
-    this.ui.setProcessing(true);
-    const progress = this.ui.showProgress('Adding page numbers...');
-
-    try {
-      const result = await PDFProcessor.addPageNumbers(this.currentFiles[0], {
-        format: '{page}/{total}',
-        position: 'bottom-right'
-      });
-
-      FileHandler.downloadPDF(result, `numbered_${this.currentFiles[0].name}`);
-      this.ui.showToast('Page numbers added successfully!', 'success');
-    } catch (error) {
-      this.ui.showToast('Add page numbers failed: ' + error.message, 'error');
-    } finally {
-      progress.close();
-      this.ui.setProcessing(false);
-    }
-  }
-
-  /**
-   * Manage metadata
-   */
-  async performMetadata() {
-    if (this.currentFiles.length === 0) {
-      this.ui.showToast('Select a PDF', 'warning');
-      return;
-    }
-
-    try {
-      const metadata = await PDFProcessor.getMetadata(this.currentFiles[0]);
-      
-      const modal = this.ui.createModal('metadataModal', 'PDF Metadata', { width: '600px' });
-      
-      const info = document.createElement('div');
-      info.className = 'metadata-display';
-      info.innerHTML = `
-        <p><strong>Title:</strong> ${metadata.title || '(none)'}</p>
-        <p><strong>Author:</strong> ${metadata.author || '(none)'}</p>
-        <p><strong>Subject:</strong> ${metadata.subject || '(none)'}</p>
-        <p><strong>Keywords:</strong> ${metadata.keywords || '(none)'}</p>
-        <p><strong>Pages:</strong> ${metadata.pageCount}</p>
-      `;
-      
-      const button = document.createElement('button');
-      button.className = 'btn btn-secondary';
-      button.textContent = 'Remove Metadata';
-      button.addEventListener('click', async () => {
-        try {
-          const result = await PDFProcessor.removeMetadata(this.currentFiles[0]);
-          FileHandler.downloadPDF(result, `clean_${this.currentFiles[0].name}`);
-          this.ui.showToast('Metadata removed!', 'success');
-          modal.close();
-        } catch (error) {
-          this.ui.showToast('Failed to remove metadata: ' + error.message, 'error');
-        }
-      });
-      
-      modal.body.appendChild(info);
-      modal.body.appendChild(button);
-      modal.show();
-    } catch (error) {
-      this.ui.showToast('Failed to read metadata: ' + error.message, 'error');
-    }
+  async doOptimize() {
+    const doc = this.requireActive(); if (!doc) return;
+    await this.run('Optimizing…', async () => {
+      const res = await PDFProcessor.optimize(doc.bytes);
+      this.workspace.replaceActive(res.bytes);
+      const saved = res.before - res.after;
+      this.ui.showToast(saved > 0 ? `Optimized — saved ${FileHandler.formatFileSize(saved)}` : 'Optimized (already compact)', 'success');
+    });
   }
 }
 
-// Initialize when DOM is ready
-document.addEventListener('DOMContentLoaded', () => {
-  window.pdfToolkit = new PDFToolkit();
-});
+document.addEventListener('DOMContentLoaded', () => { window.pdfToolkit = new PDFToolkit(); });
 
-// PDFToolkit is initialized via DOMContentLoaded below
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = PDFToolkit;
+}

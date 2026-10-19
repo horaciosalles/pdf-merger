@@ -1,150 +1,185 @@
 /**
  * File Handler Module
- * Handles file I/O operations, validation, and conversion
+ * File reading, validation (by extension AND magic bytes), downloads,
+ * ZIP packaging, and image-to-PDF conversion.
  */
 
 class FileHandler {
-  /**
-   * Validate if file is PDF
-   */
-  static isValidPDF(file) {
-    return !!(file.name &&
-              file.name.toLowerCase().endsWith('.pdf') &&
-              (file.type === 'application/pdf' || file.type === ''));
+  static get pdfExts() { return (typeof CONFIG !== 'undefined' && CONFIG.ACCEPTED_PDF_EXT) || ['.pdf']; }
+  static get imageExts() { return (typeof CONFIG !== 'undefined' && CONFIG.ACCEPTED_IMAGE_EXT) || ['.jpg', '.jpeg', '.png']; }
+
+  static extensionOf(name) {
+    const m = /(\.[a-z0-9]+)$/i.exec(name || '');
+    return m ? m[1].toLowerCase() : '';
   }
 
-  /**
-   * Validate file size
-   */
+  static isPDFName(file) {
+    return !!(file && file.name && this.pdfExts.includes(this.extensionOf(file.name)));
+  }
+
+  static isImageName(file) {
+    return !!(file && file.name && this.imageExts.includes(this.extensionOf(file.name)));
+  }
+
+  /** Accepts a PDF by extension + MIME (kept for unit-test compatibility). */
+  static isValidPDF(file) {
+    return !!(file && file.name &&
+      this.isPDFName(file) &&
+      (file.type === 'application/pdf' || file.type === 'application/x-pdf' || file.type === ''));
+  }
+
   static isValidFileSize(file, maxSize = 500 * 1024 * 1024) {
     return file.size <= maxSize;
   }
 
+  /** Classify a file: 'pdf' | 'image' | null. */
+  static classify(file) {
+    if (this.isPDFName(file) && (file.type === '' || /pdf/i.test(file.type))) return 'pdf';
+    if (this.isImageName(file) && (file.type === '' || /image\/(jpeg|png)/i.test(file.type))) return 'image';
+    return null;
+  }
+
   /**
-   * Validate multiple files
+   * Validate a list of files against current workspace state.
+   * @param {object} opts { maxSize, maxTotalSize, existingTotal, existingNames, allowDuplicates, acceptImages, maxFiles }
    */
-  static validateFiles(files, options = {}) {
+  static validateFiles(files, opts = {}) {
     const {
       maxSize = 500 * 1024 * 1024,
+      maxTotalSize = Infinity,
+      existingTotal = 0,
+      existingNames = new Set(),
       allowDuplicates = false,
+      acceptImages = false,
       maxFiles = Infinity
-    } = options;
+    } = opts;
 
-    const results = {
-      valid: [],
-      invalid: [],
-      errors: []
-    };
+    const results = { valid: [], invalid: [], errors: [] };
+    const arr = Array.from(files);
 
-    if (files.length > maxFiles) {
+    if (arr.length > maxFiles) {
       results.errors.push(`Maximum ${maxFiles} files allowed`);
       return results;
     }
 
-    const seenNames = new Set();
+    const seen = new Set(existingNames);
+    let runningTotal = existingTotal;
 
-    for (const file of files) {
-      if (!this.isValidPDF(file)) {
-        results.invalid.push({
-          file: file.name,
-          reason: 'Not a valid PDF file'
-        });
+    for (const file of arr) {
+      const kind = this.classify(file);
+      const isPdf = this.isValidPDF(file);
+      const accepted = isPdf || (acceptImages && kind === 'image');
+
+      if (!accepted) {
+        results.invalid.push({ file: file.name, reason: acceptImages ? 'Not a PDF or supported image' : 'Not a valid PDF file' });
         continue;
       }
-
       if (!this.isValidFileSize(file, maxSize)) {
-        results.invalid.push({
-          file: file.name,
-          reason: `File exceeds ${(maxSize / 1024 / 1024).toFixed(0)}MB limit`
-        });
+        results.invalid.push({ file: file.name, reason: `File exceeds ${(maxSize / 1024 / 1024).toFixed(0)}MB limit` });
         continue;
       }
-
-      if (!allowDuplicates && seenNames.has(file.name)) {
-        results.invalid.push({
-          file: file.name,
-          reason: 'Duplicate file name'
-        });
+      if (!allowDuplicates && seen.has(file.name)) {
+        results.invalid.push({ file: file.name, reason: 'Already added' });
         continue;
       }
-
-      seenNames.add(file.name);
+      if (runningTotal + file.size > maxTotalSize) {
+        results.invalid.push({ file: file.name, reason: 'Total size limit exceeded' });
+        continue;
+      }
+      seen.add(file.name);
+      runningTotal += file.size;
       results.valid.push(file);
     }
-
     return results;
   }
 
-  /**
-   * Read file as ArrayBuffer
-   */
-  static async readAsArrayBuffer(file) {
+  /** Read a File/Blob as Uint8Array (uses the modern API when available). */
+  static async readAsUint8Array(file) {
+    if (typeof file.arrayBuffer === 'function') {
+      return new Uint8Array(await file.arrayBuffer());
+    }
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
+      reader.onload = () => resolve(new Uint8Array(reader.result));
       reader.onerror = () => reject(new Error(`Failed to read file: ${file.name}`));
       reader.readAsArrayBuffer(file);
     });
   }
 
-  /**
-   * Download PDF from Uint8Array
-   */
-  static downloadPDF(pdfBytes, filename = 'document.pdf') {
-    const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+  // Back-compat alias used by older call sites / tests.
+  static async readAsArrayBuffer(file) {
+    const u8 = await this.readAsUint8Array(file);
+    return u8.buffer;
+  }
+
+  /** Confirm the first bytes are a PDF header. */
+  static async sniffIsPDF(file) {
+    try {
+      const blob = file.slice ? file.slice(0, 5) : file;
+      const u8 = await this.readAsUint8Array(blob);
+      return u8[0] === 0x25 && u8[1] === 0x50 && u8[2] === 0x44 && u8[3] === 0x46 && u8[4] === 0x2D; // %PDF-
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static downloadBytes(bytes, filename, mime = 'application/pdf') {
+    const blob = new Blob([bytes], { type: mime });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
     link.download = filename;
-    
-    // Append to body temporarily (required for some browsers)
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    
-    // Clean up URL object
-    setTimeout(() => URL.revokeObjectURL(url), 100);
+    // Revoke late — Firefox/Safari can abort large downloads if revoked too soon.
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
 
-  /**
-   * Download multiple PDFs as separate files
-   */
-  static async downloadMultiplePDFs(pdfArray, baseFilename = 'document') {
-    for (let i = 0; i < pdfArray.length; i++) {
-      const filename = `${baseFilename}_${i + 1}.pdf`;
-      const delay = i * 100; // Stagger downloads
-      
-      setTimeout(() => {
-        this.downloadPDF(pdfArray[i], filename);
-      }, delay);
+  static downloadPDF(pdfBytes, filename = 'document.pdf') {
+    this.downloadBytes(pdfBytes, filename, 'application/pdf');
+  }
+
+  /** Package multiple PDFs into a single ZIP (avoids 50-download prompts). */
+  static async downloadZip(entries, zipName = 'pdf-toolkit.zip') {
+    const fflate = (typeof window !== 'undefined' && window.fflate);
+    if (!fflate) {
+      // Fallback: staggered individual downloads.
+      entries.forEach((e, i) => setTimeout(() => this.downloadPDF(e.bytes, e.name), i * 150));
+      return;
     }
+    const files = {};
+    for (const e of entries) files[e.name] = [e.bytes, { level: 0 }]; // PDFs are already compressed
+    const zipped = fflate.zipSync(files);
+    this.downloadBytes(zipped, zipName, 'application/zip');
   }
 
-  /**
-   * Get file size in human-readable format
-   */
   static formatFileSize(bytes) {
-    if (bytes === 0) return '0 B';
+    if (!bytes || bytes === 0) return '0 B';
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }
 
-  /**
-   * Clear memory (for cleanup)
-   */
-  static clearMemory() {
-    // Revoke all blob URLs
-    const links = document.querySelectorAll('[href*="blob:"]');
-    links.forEach(link => {
-      try {
-        URL.revokeObjectURL(link.href);
-      } catch (e) {
-        // Ignore
-      }
-    });
+  /** Convert a JPG/PNG File into a one-page PDF (Uint8Array). */
+  static async imageToPdfBytes(file) {
+    const { PDFDocument } = (window.PDFLib);
+    const bytes = await this.readAsUint8Array(file);
+    const pdf = await PDFDocument.create();
+    const ext = this.extensionOf(file.name);
+    const img = (ext === '.png') ? await pdf.embedPng(bytes) : await pdf.embedJpg(bytes);
+    const page = pdf.addPage([img.width, img.height]);
+    page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
+    return pdf.save();
+  }
+
+  /** Strip extension for building output names. */
+  static baseName(name) {
+    return (name || 'document').replace(/\.[a-z0-9]+$/i, '');
   }
 }
 
-// FileHandler is a global class — no export needed
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = FileHandler;
+}

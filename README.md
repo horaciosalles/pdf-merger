@@ -6,29 +6,22 @@ A powerful, privacy-first PDF editor that runs entirely in your browser. Merge, 
 
 ## ✨ Features
 
-### Core Operations (Phase 1) ✅
-- **🔗 Merge** - Combine multiple PDFs into one with drag-and-drop reordering
-- **✂️ Split** - Extract page ranges or divide PDFs into individual pages
-- **🔒 Encrypt** - Protect PDFs with password (AES-256 encryption)
-- **🔓 Decrypt** - Remove password protection from encrypted PDFs
+### Workspace
+- **One document panel for every tool.** Drop PDFs or JPG/PNG images anywhere on the page, click to browse, paste, or drop whole folders
+- **Chain edits** (watermark → page numbers → …) on the active document, with **Undo**, then download when ready
+- Encryption is detected on import: permissions-only PDFs are unlocked automatically; password-protected ones show a 🔒 badge with one-click unlock
 
-### Advanced Tools (Phase 2) ✅
-- **🗑️ Delete Pages** - Remove unwanted pages
-- **🔄 Rotate Pages** - Rotate 90°, 180°, or 270°
-- **💧 Watermark** - Add text watermarks to all pages
-- **📄 Page Numbers** - Auto-number all pages
-- **📋 Metadata Management** - View and remove PDF metadata
+### Tools
+- **🔗 Merge** — all documents in list order (drag the numbered handle to reorder)
+- **✂️ Split** — single pages, page ranges (`1-3,7,10-end`), or every N pages; multi-file output arrives as one ZIP
+- **🔒 Encrypt** — AES-256 with password confirmation and print/copy/edit/annotate permissions
+- **🔓 Unlock** — remove restrictions (no password needed), remove a known password, or try a list of candidate passwords
+- **🧩 Visual page editor** — thumbnails; drag to reorder, rotate, delete, duplicate, or extract selected pages
+- **Other tools:** delete/rotate pages, watermark (with opacity), page numbers (position, format, skip first page), metadata view/edit/strip (including XMP), reverse order, insert a blank page, flatten forms, structural optimization, and export pages as PNG (ZIP)
 
-### Progressive Web App (Phase 3) ✅
-- 📱 Fully responsive (mobile, tablet, desktop)
-- 🌐 Works completely offline (after initial load)
-- ⚙️ Installable as app (Add to Home Screen)
-- ⚡ Service Worker caching for instant load
-
-### Additional Features (Phase 4)
-- 🔄 Batch processing (future)
-- 🖼️ Image to PDF conversion (future)
-- 📝 Page annotations (future)
+### Progressive Web App
+- Responsive, light/dark themes, keyboard accessible
+- Works from `file://` with no server, or served with offline support via the service worker
 
 ## 🔒 Privacy & Security
 
@@ -49,8 +42,7 @@ A powerful, privacy-first PDF editor that runs entirely in your browser. Merge, 
 ### Use Online (No Installation)
 1. Visit [https://horaciosalles.github.io/pdf-merger/](https://horaciosalles.github.io/pdf-merger/)
 2. Select your PDFs
-3. Choose operation
-4. Results download automatically
+3. Choose a tool. Edits apply to the active document; download it (or Undo) at any time
 
 ### Run Locally
 ```bash
@@ -97,21 +89,22 @@ pdf-toolkit/
 │   ├── js/
 │   │   ├── app.js         # Main application
 │   │   ├── config.js      # Configuration
-│   │   ├── modules/       # Feature modules
-│   │   └── workers/       # Web Workers
-│   ├── lib/               # Third-party libraries
-│   └── sw.js              # Service Worker
+│   │   └── modules/       # Engine (pdfHelper, merger, splitter, encryptor,
+│   │                      #   processor), workspace, render, pageEditor, ui
+│   └── lib/               # Vendored third-party libraries
+├── sw.js                  # Service Worker (root, so its scope covers the app)
+├── tests/                 # Jest unit/engine tests, Playwright E2E, fixtures
 ├── docs/                  # Documentation
 └── README.md
 ```
 
 ## 🔧 Technology Stack
 
-- **[PDF-LIB](https://pdf-lib.js.org/)** - PDF manipulation (AES-256 encryption, merging, splitting)
-- **[SortableJS](https://sortablejs.github.io/Sortable/)** - Drag-and-drop file reordering
-- **Service Workers** - Offline functionality
-- **Web Workers** - Background processing
-- **Vanilla JavaScript** - No heavy frameworks (fast & lightweight)
+- **[@cantoo/pdf-lib](https://github.com/cantoo-scribe/pdf-lib)** - pdf-lib fork with working encryption/decryption (RC4 and AES-128/256)
+- **[pdf.js](https://mozilla.github.io/pdf.js/)** - Page thumbnails, the page editor, and PNG export
+- **[SortableJS](https://sortablejs.github.io/Sortable/)** - Drag-and-drop reordering
+- **[fflate](https://github.com/101arrowz/fflate)** - ZIP packaging for multi-file output
+- **Vanilla JavaScript** - Plain scripts with no bundler, so it runs from `file://`
 
 ## 💻 Development
 

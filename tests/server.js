@@ -2,7 +2,6 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const url = require('url');
 
 const PORT = 3000;
 const ROOT = path.join(__dirname, '..');
@@ -19,13 +18,20 @@ const MIME_TYPES = {
 };
 
 const server = http.createServer((req, res) => {
-  let pathname = url.parse(req.url).pathname;
+  let pathname;
+  try {
+    pathname = decodeURIComponent(new URL(req.url, `http://localhost:${PORT}`).pathname);
+  } catch (_) {
+    res.writeHead(400);
+    res.end('Bad request');
+    return;
+  }
   if (pathname === '/') pathname = '/index.html';
 
   const filePath = path.join(ROOT, pathname);
 
   // Prevent path traversal outside project root
-  if (!filePath.startsWith(ROOT)) {
+  if (filePath !== ROOT && !filePath.startsWith(ROOT + path.sep)) {
     res.writeHead(403);
     res.end('Forbidden');
     return;

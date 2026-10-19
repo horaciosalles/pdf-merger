@@ -1,0 +1,5 @@
+# PDFs are binary; never convert line endings (would corrupt xref offsets)
+*.pdf binary
+
+# Vendored minified libraries: keep byte-for-byte
+src/lib/*.js -text
